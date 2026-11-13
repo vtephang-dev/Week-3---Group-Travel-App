@@ -25,10 +25,10 @@ export default function Home() {
           Plan trips together. Split costs fairly. No awkward math.
         </Typography>
         <Stack direction="row" spacing={2}>
-          <Button variant="contained" size="large">
+          <Button href="/signup" variant="contained" size="large">
             Get started
           </Button>
-          <Button variant="outlined" size="large">
+          <Button href="/login" variant="outlined" size="large">
             Log in
           </Button>
         </Stack>
