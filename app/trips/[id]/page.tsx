@@ -50,7 +50,7 @@ export default async function TripPage({
     await Promise.all([
       supabase.from("trip_members").select("user_id").eq("trip_id", id),
       supabase.from("itinerary_items").select("id, title, details, day, start_time, place, cost_cents, currency, version, created_by").eq("trip_id", id).order("day", { ascending: true, nullsFirst: false }).order("start_time", { ascending: true, nullsFirst: true }),
-      supabase.from("ideas").select("id, title, notes, decided, created_by").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("ideas").select("id, title, notes, decided, created_by, created_at, link, cost_cents").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("arrivals").select("id, arrive_at, location, notes, user_id, flight_number").eq("trip_id", id).order("arrive_at", { ascending: true }),
       supabase.from("expenses").select("id, description, amount_cents, paid_by").eq("trip_id", id).order("created_at", { ascending: true }),
@@ -249,6 +249,7 @@ export default async function TripPage({
           ideas={ideasWithComments}
           currentUserId={user.id}
           isOwner={trip.owner_id === user.id}
+          tripCurrency={trip.main_currency ?? "USD"}
         />
         <ExpensesSection
           tripId={id}

@@ -28,8 +28,18 @@ export type Idea = {
   decided: boolean;
   created_by: string;
   who: string;
+  created_at: string;
+  link: string | null;
+  cost_cents: number | null;
   comments: IdeaComment[];
 };
+
+function whenLabel(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
 
 function formatWhen(iso: string) {
   const d = new Date(iso);
@@ -46,14 +56,18 @@ export default function IdeasSection({
   ideas,
   currentUserId,
   isOwner,
+  tripCurrency,
 }: {
   tripId: string;
   ideas: Idea[];
   currentUserId: string;
   isOwner: boolean;
+  tripCurrency: string;
 }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
+  const [link, setLink] = useState("");
+  const [cost, setCost] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -72,12 +86,23 @@ export default function IdeasSection({
   async function addIdea(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const costCents = (() => {
+      const v = parseFloat(cost);
+      return isNaN(v) ? null : Math.round(v * 100);
+    })();
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.from("ideas").insert({ trip_id: tripId, title });
+    const { error } = await supabase.from("ideas").insert({
+      trip_id: tripId,
+      title,
+      link: link.trim() || null,
+      cost_cents: costCents,
+    });
     setLoading(false);
     if (error) return setError(error.message);
     setTitle("");
+    setLink("");
+    setCost("");
     router.refresh();
   }
 
@@ -127,9 +152,23 @@ export default function IdeasSection({
         ) : (
           <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
             <Box sx={{ flexGrow: 1, minWidth: 120 }}>
-              <Typography>{idea.title}</Typography>
+              <Typography>
+                {idea.title}
+                {idea.cost_cents != null && (
+                  <Typography component="span" variant="body2" color="text.secondary">
+                    {" "}· ~{tripCurrency} {(idea.cost_cents / 100).toFixed(2)}
+                  </Typography>
+                )}
+              </Typography>
+              {idea.link && (
+                <Typography variant="caption" sx={{ display: "block" }}>
+                  <a href={idea.link} target="_blank" rel="noopener noreferrer">
+                    {idea.link}
+                  </a>
+                </Typography>
+              )}
               <Typography variant="caption" color="text.secondary">
-                added by {idea.who}
+                added by {idea.who} · {whenLabel(idea.created_at)}
               </Typography>
             </Box>
             {isOwner && (
@@ -230,6 +269,25 @@ export default function IdeasSection({
             size="small"
             placeholder="Rent bikes for a day"
           />
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+            <TextField
+              label="Link (optional)"
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              fullWidth
+              size="small"
+              placeholder="https://…"
+            />
+            <TextField
+              label={`Rough cost (${tripCurrency}, optional)`}
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              size="small"
+              placeholder="25.00"
+              inputMode="decimal"
+              sx={{ minWidth: 160 }}
+            />
+          </Stack>
           <Button type="submit" variant="contained" disabled={loading} sx={{ alignSelf: "flex-start" }}>
             {loading ? "Adding…" : "Add idea"}
           </Button>
