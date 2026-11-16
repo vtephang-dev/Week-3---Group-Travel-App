@@ -17,8 +17,11 @@ import Alert from "@mui/material/Alert";
 import FormGroup from "@mui/material/FormGroup";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Checkbox from "@mui/material/Checkbox";
+import MenuItem from "@mui/material/MenuItem";
 
 export type Member = { user_id: string; name: string };
+
+export type RecordedPayment = { from_name: string; to_name: string; amount_cents: number };
 
 export type Expense = {
   id: string;
@@ -42,6 +45,9 @@ export default function ExpensesSection({
   currentUserId,
   balances,
   settlements,
+  recordedPayments,
+  allSettled,
+  tripCurrency,
 }: {
   tripId: string;
   expenses: Expense[];
@@ -49,10 +55,35 @@ export default function ExpensesSection({
   currentUserId: string;
   balances: Balance[];
   settlements: Settlement[];
+  recordedPayments: RecordedPayment[];
+  allSettled: boolean;
+  tripCurrency: string;
 }) {
   const router = useRouter();
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [payTo, setPayTo] = useState("");
+  const [payAmount, setPayAmount] = useState("");
+
+  async function recordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const dollars = parseFloat(payAmount);
+    if (isNaN(dollars) || dollars <= 0) return setError("Enter a valid payment amount.");
+    if (!payTo) return setError("Choose who you paid.");
+    const supabase = createClient();
+    const { error } = await supabase.from("settlements").insert({
+      trip_id: tripId,
+      from_user: currentUserId,
+      to_user: payTo,
+      amount_cents: Math.round(dollars * 100),
+      currency: tripCurrency,
+    });
+    if (error) return setError(error.message);
+    setPayTo("");
+    setPayAmount("");
+    router.refresh();
+  }
   // Who shares this expense — default everyone.
   const [shared, setShared] = useState<Set<string>>(
     new Set(members.map((m) => m.user_id)),
@@ -162,6 +193,11 @@ export default function ExpensesSection({
           </Typography>
 
           <Divider sx={{ my: 2 }} />
+          {allSettled && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              All settled up — nobody owes anything. 🎉
+            </Alert>
+          )}
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             Balances
           </Typography>
@@ -197,6 +233,57 @@ export default function ExpensesSection({
                 </Typography>
               ))}
             </Stack>
+          )}
+
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Record a payment you made
+          </Typography>
+          <Box component="form" onSubmit={recordPayment} sx={{ mb: 2 }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+              <TextField
+                select
+                label="I paid…"
+                value={payTo}
+                onChange={(e) => setPayTo(e.target.value)}
+                size="small"
+                sx={{ minWidth: 140 }}
+              >
+                {members
+                  .filter((m) => m.user_id !== currentUserId)
+                  .map((m) => (
+                    <MenuItem key={m.user_id} value={m.user_id}>
+                      {m.name}
+                    </MenuItem>
+                  ))}
+              </TextField>
+              <TextField
+                label={`Amount (${tripCurrency})`}
+                value={payAmount}
+                onChange={(e) => setPayAmount(e.target.value)}
+                size="small"
+                placeholder="25.00"
+                inputMode="decimal"
+              />
+              <Button type="submit" variant="outlined">
+                Record
+              </Button>
+            </Stack>
+          </Box>
+
+          {recordedPayments.length > 0 && (
+            <>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Payments recorded
+              </Typography>
+              <Stack spacing={0.5} sx={{ mb: 2 }}>
+                {recordedPayments.map((p, i) => (
+                  <Typography key={i} variant="body2" color="text.secondary">
+                    {p.from_name} paid {p.to_name} {money(p.amount_cents)}
+                  </Typography>
+                ))}
+              </Stack>
+            </>
           )}
         </>
       )}

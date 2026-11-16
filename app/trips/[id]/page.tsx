@@ -63,6 +63,12 @@ export default async function TripPage({
     .eq("trip_id", id)
     .order("created_at", { ascending: true });
 
+  const { data: payments } = await supabase
+    .from("settlements")
+    .select("from_user, to_user, amount_cents, paid_at")
+    .eq("trip_id", id)
+    .order("paid_at", { ascending: true });
+
   const memberIds = (memberRows ?? []).map((m) => m.user_id);
   const { data: profiles } = await supabase
     .from("profiles")
@@ -149,10 +155,27 @@ export default async function TripPage({
   const owed: Record<string, number> = {};
   for (const s of allSplits) owed[s.user_id] = (owed[s.user_id] ?? 0) + s.share_cents;
 
+  // Recorded payments: when A pays B, A's net goes up and B's net goes down.
+  const settledNet: Record<string, number> = {};
+  for (const p of payments ?? []) {
+    settledNet[p.from_user] = (settledNet[p.from_user] ?? 0) + p.amount_cents;
+    settledNet[p.to_user] = (settledNet[p.to_user] ?? 0) - p.amount_cents;
+  }
+
   const balances = members.map((m) => ({
     user_id: m.user_id,
     name: m.name,
-    net_cents: (paid[m.user_id] ?? 0) - (owed[m.user_id] ?? 0),
+    net_cents:
+      (paid[m.user_id] ?? 0) - (owed[m.user_id] ?? 0) + (settledNet[m.user_id] ?? 0),
+  }));
+
+  const hasMoneyActivity = (expenses ?? []).length > 0 || (payments ?? []).length > 0;
+  const allSettled = hasMoneyActivity && balances.every((b) => b.net_cents === 0);
+
+  const recordedPayments = (payments ?? []).map((p) => ({
+    from_name: nameOf(p.from_user),
+    to_name: nameOf(p.to_user),
+    amount_cents: p.amount_cents,
   }));
 
   // Settle up: greedily match the biggest debtor with the biggest creditor.
@@ -234,6 +257,9 @@ export default async function TripPage({
           currentUserId={user.id}
           balances={balances}
           settlements={settlements}
+          recordedPayments={recordedPayments}
+          allSettled={allSettled}
+          tripCurrency={trip.main_currency ?? "USD"}
         />
         <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} />
       </Box>
