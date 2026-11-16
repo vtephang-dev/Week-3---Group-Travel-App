@@ -16,8 +16,22 @@ type Trip = {
   id: string;
   name: string;
   destination: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  main_currency: string | null;
   created_at: string;
 };
+
+function tripSubtitle(trip: Trip) {
+  const parts: string[] = [];
+  if (trip.destination) parts.push(trip.destination);
+  if (trip.start_date && trip.end_date) {
+    parts.push(`${trip.start_date} → ${trip.end_date}`);
+  } else if (trip.start_date) {
+    parts.push(`from ${trip.start_date}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "No destination set";
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -32,7 +46,7 @@ export default async function DashboardPage() {
 
   const { data: trips } = await supabase
     .from("trips")
-    .select("id, name, destination, created_at")
+    .select("id, name, destination, start_date, end_date, main_currency, created_at")
     .order("created_at", { ascending: false });
 
   const tripList = (trips ?? []) as Trip[];
@@ -71,7 +85,7 @@ export default async function DashboardPage() {
                   <ListItemButton href={`/trips/${trip.id}`}>
                     <ListItemText
                       primary={trip.name}
-                      secondary={trip.destination ?? "No destination set"}
+                      secondary={tripSubtitle(trip)}
                     />
                   </ListItemButton>
                 </ListItem>

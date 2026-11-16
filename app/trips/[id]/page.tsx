@@ -12,6 +12,19 @@ import ArrivalsSection from "./arrivals-section";
 import ExpensesSection from "./expenses-section";
 import MembersSection from "./members-section";
 
+function formatDateRange(start: string | null, end: string | null) {
+  const fmt = (d: string) =>
+    new Date(d + "T00:00:00").toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  if (start && end) return `${fmt(start)} – ${fmt(end)}`;
+  if (start) return `From ${fmt(start)}`;
+  if (end) return `Until ${fmt(end)}`;
+  return "Dates not set";
+}
+
 export default async function TripPage({
   params,
 }: {
@@ -27,21 +40,28 @@ export default async function TripPage({
 
   const { data: trip } = await supabase
     .from("trips")
-    .select("id, name, destination, invite_code, owner_id")
+    .select("id, name, destination, invite_code, owner_id, start_date, end_date, main_currency")
     .eq("id", id)
     .single();
 
   if (!trip) notFound();
 
-  const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: arrivals }, { data: expenses }, { data: splits }] =
+  const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: ideaComments }, { data: arrivals }, { data: expenses }, { data: splits }] =
     await Promise.all([
       supabase.from("trip_members").select("user_id").eq("trip_id", id),
       supabase.from("itinerary_items").select("id, title, details, day").eq("trip_id", id).order("day", { ascending: true }),
       supabase.from("ideas").select("id, title, notes, decided").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("arrivals").select("id, arrive_at, location, notes, user_id").eq("trip_id", id).order("arrive_at", { ascending: true }),
       supabase.from("expenses").select("id, description, amount_cents, paid_by").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
+
+  const { data: invites } = await supabase
+    .from("invites")
+    .select("id, email, expires_at")
+    .eq("trip_id", id)
+    .order("created_at", { ascending: true });
 
   const memberIds = (memberRows ?? []).map((m) => m.user_id);
   const { data: profiles } = await supabase
@@ -56,6 +76,39 @@ export default async function TripPage({
   };
 
   const members = memberIds.map((uid) => ({ user_id: uid, name: nameOf(uid) }));
+
+  // Emails of people already in the trip (profiles store the email as display_name).
+  const memberEmails = new Set<string>();
+  for (const p of profiles ?? []) {
+    if (p.display_name && p.display_name.includes("@")) {
+      memberEmails.add(p.display_name.toLowerCase());
+    }
+  }
+  if (user.email) memberEmails.add(user.email.toLowerCase());
+
+  // "Who hasn't joined yet" = invited emails that aren't members yet.
+  const now = Date.now();
+  const pendingInvites = (invites ?? [])
+    .filter((inv) => !memberEmails.has(inv.email.toLowerCase()))
+    .map((inv) => ({
+      id: inv.id,
+      email: inv.email,
+      expires_at: inv.expires_at,
+      expired: new Date(inv.expires_at).getTime() < now,
+    }));
+
+  const ideasWithComments = (ideas ?? []).map((idea) => ({
+    ...idea,
+    comments: (ideaComments ?? [])
+      .filter((c) => c.idea_id === idea.id)
+      .map((c) => ({
+        id: c.id,
+        body: c.body,
+        author_id: c.author_id,
+        author_name: nameOf(c.author_id),
+        created_at: c.created_at,
+      })),
+  }));
   const arrivalRows = (arrivals ?? []).map((a) => ({
     id: a.id,
     arrive_at: a.arrive_at,
@@ -131,11 +184,21 @@ export default async function TripPage({
               {trip.destination}
             </Typography>
           )}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {formatDateRange(trip.start_date, trip.end_date)} · Settles up in{" "}
+            {trip.main_currency ?? "USD"}
+          </Typography>
         </Box>
 
-        <MembersSection members={members} inviteUrl={inviteUrl} currentUserId={user.id} />
+        <MembersSection
+          tripId={id}
+          members={members}
+          inviteUrl={inviteUrl}
+          currentUserId={user.id}
+          pendingInvites={pendingInvites}
+        />
         <ItinerarySection tripId={id} items={itinerary ?? []} />
-        <IdeasSection tripId={id} ideas={ideas ?? []} />
+        <IdeasSection tripId={id} ideas={ideasWithComments} currentUserId={user.id} />
         <ExpensesSection
           tripId={id}
           expenses={expenseRows}
