@@ -18,6 +18,8 @@ import FormGroup from "@mui/material/FormGroup";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Checkbox from "@mui/material/Checkbox";
 import MenuItem from "@mui/material/MenuItem";
+import RadioGroup from "@mui/material/RadioGroup";
+import Radio from "@mui/material/Radio";
 
 export type Member = { user_id: string; name: string };
 
@@ -88,8 +90,20 @@ export default function ExpensesSection({
   const [shared, setShared] = useState<Set<string>>(
     new Set(members.map((m) => m.user_id)),
   );
+  const [splitMode, setSplitMode] = useState<"even" | "custom">("even");
+  // Custom per-person amounts (dollar strings), keyed by user id.
+  const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const customSumCents = members.reduce((sum, m) => {
+    const v = parseFloat(customAmounts[m.user_id] ?? "");
+    return sum + (isNaN(v) ? 0 : Math.round(v * 100));
+  }, 0);
+  const targetCents = (() => {
+    const d = parseFloat(amount);
+    return isNaN(d) ? 0 : Math.round(d * 100);
+  })();
 
   function toggle(uid: string) {
     setShared((prev) => {
@@ -111,17 +125,49 @@ export default function ExpensesSection({
     setError(null);
     const dollars = parseFloat(amount);
     if (isNaN(dollars) || dollars < 0) return setError("Enter a valid amount.");
-    const sharers = [...shared];
-    if (sharers.length === 0) return setError("Pick at least one person to split with.");
+    const totalCents = Math.round(dollars * 100);
+
+    // Build the per-person shares depending on the chosen split method.
+    let rows: { user_id: string; share_cents: number }[];
+
+    if (splitMode === "even") {
+      const sharers = [...shared];
+      if (sharers.length === 0) return setError("Pick at least one person to split with.");
+      // Split evenly, giving leftover cents to the first few so it adds up exactly.
+      const base = Math.floor(totalCents / sharers.length);
+      let remainder = totalCents - base * sharers.length;
+      rows = sharers.map((uid) => {
+        let share = base;
+        if (remainder > 0) {
+          share += 1;
+          remainder -= 1;
+        }
+        return { user_id: uid, share_cents: share };
+      });
+    } else {
+      // Custom amounts: each person's exact share must add up to the total.
+      if (customSumCents !== totalCents) {
+        return setError(
+          `Custom amounts add up to ${money(customSumCents)}, but the total is ${money(
+            totalCents,
+          )}. Please make them match.`,
+        );
+      }
+      rows = members
+        .map((m) => {
+          const v = parseFloat(customAmounts[m.user_id] ?? "");
+          return { user_id: m.user_id, share_cents: isNaN(v) ? 0 : Math.round(v * 100) };
+        })
+        .filter((r) => r.share_cents > 0);
+      if (rows.length === 0) return setError("Enter at least one person's amount.");
+    }
 
     setLoading(true);
     const supabase = createClient();
-    const totalCents = Math.round(dollars * 100);
 
-    // Insert the expense and get its id.
     const { data: exp, error: expErr } = await supabase
       .from("expenses")
-      .insert({ trip_id: tripId, description, amount_cents: totalCents })
+      .insert({ trip_id: tripId, description, amount_cents: totalCents, split_mode: splitMode })
       .select("id")
       .single();
 
@@ -130,25 +176,22 @@ export default function ExpensesSection({
       return setError(expErr?.message ?? "Could not save expense.");
     }
 
-    // Split evenly across the chosen people, giving leftover cents to the first few.
-    const base = Math.floor(totalCents / sharers.length);
-    let remainder = totalCents - base * sharers.length;
-    const rows = sharers.map((uid) => {
-      let share = base;
-      if (remainder > 0) {
-        share += 1;
-        remainder -= 1;
-      }
-      return { expense_id: exp.id, user_id: uid, trip_id: tripId, share_cents: share };
-    });
+    const splitRows = rows.map((r) => ({
+      expense_id: exp.id,
+      user_id: r.user_id,
+      trip_id: tripId,
+      share_cents: r.share_cents,
+    }));
 
-    const { error: splitErr } = await supabase.from("expense_splits").insert(rows);
+    const { error: splitErr } = await supabase.from("expense_splits").insert(splitRows);
     setLoading(false);
     if (splitErr) return setError(splitErr.message);
 
     setDescription("");
     setAmount("");
     setShared(new Set(members.map((m) => m.user_id)));
+    setCustomAmounts({});
+    setSplitMode("even");
     router.refresh();
   }
 
@@ -312,23 +355,74 @@ export default function ExpensesSection({
           />
           <Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-              Split with:
+              How to split:
             </Typography>
-            <FormGroup>
-              {members.map((m) => (
-                <FormControlLabel
-                  key={m.user_id}
-                  control={
-                    <Checkbox
-                      checked={shared.has(m.user_id)}
-                      onChange={() => toggle(m.user_id)}
-                      size="small"
+            <RadioGroup
+              row
+              value={splitMode}
+              onChange={(e) => setSplitMode(e.target.value as "even" | "custom")}
+            >
+              <FormControlLabel value="even" control={<Radio size="small" />} label="Evenly" />
+              <FormControlLabel value="custom" control={<Radio size="small" />} label="Custom amounts" />
+            </RadioGroup>
+
+            {splitMode === "even" ? (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                  Split with:
+                </Typography>
+                <FormGroup>
+                  {members.map((m) => (
+                    <FormControlLabel
+                      key={m.user_id}
+                      control={
+                        <Checkbox
+                          checked={shared.has(m.user_id)}
+                          onChange={() => toggle(m.user_id)}
+                          size="small"
+                        />
+                      }
+                      label={m.user_id === currentUserId ? `${m.name} (you)` : m.name}
                     />
-                  }
-                  label={m.user_id === currentUserId ? `${m.name} (you)` : m.name}
-                />
-              ))}
-            </FormGroup>
+                  ))}
+                </FormGroup>
+              </>
+            ) : (
+              <Stack spacing={1}>
+                {members.map((m) => (
+                  <Stack
+                    key={m.user_id}
+                    direction="row"
+                    sx={{ alignItems: "center", gap: 1 }}
+                  >
+                    <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                      {m.user_id === currentUserId ? `${m.name} (you)` : m.name}
+                    </Typography>
+                    <TextField
+                      value={customAmounts[m.user_id] ?? ""}
+                      onChange={(e) =>
+                        setCustomAmounts((prev) => ({ ...prev, [m.user_id]: e.target.value }))
+                      }
+                      size="small"
+                      placeholder="0.00"
+                      inputMode="decimal"
+                      sx={{ width: 110 }}
+                    />
+                  </Stack>
+                ))}
+                <Typography
+                  variant="caption"
+                  color={customSumCents === targetCents && targetCents > 0 ? "success.main" : "text.secondary"}
+                >
+                  Entered {money(customSumCents)} of {money(targetCents)}
+                  {targetCents > 0 && customSumCents !== targetCents
+                    ? ` · ${money(Math.abs(targetCents - customSumCents))} ${
+                        customSumCents > targetCents ? "over" : "left"
+                      }`
+                    : ""}
+                </Typography>
+              </Stack>
+            )}
           </Box>
           <Button type="submit" variant="contained" disabled={loading} sx={{ alignSelf: "flex-start" }}>
             {loading ? "Adding…" : "Add expense"}
