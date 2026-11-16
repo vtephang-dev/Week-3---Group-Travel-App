@@ -89,6 +89,12 @@ export default function LoginPage() {
         </Box>
 
         <Typography variant="body2" color="text.secondary">
+          <Link component={NextLink} href="/forgot-password">
+            Forgot your password?
+          </Link>
+        </Typography>
+
+        <Typography variant="body2" color="text.secondary">
           Don&apos;t have an account?{" "}
           <Link component={NextLink} href="/signup">
             Sign up
