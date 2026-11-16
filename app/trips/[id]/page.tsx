@@ -53,7 +53,7 @@ export default async function TripPage({
       supabase.from("ideas").select("id, title, notes, decided, created_by, created_at, link, cost_cents").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("arrivals").select("id, arrive_at, location, notes, user_id, flight_number").eq("trip_id", id).order("arrive_at", { ascending: true }),
-      supabase.from("expenses").select("id, description, amount_cents, paid_by").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("expenses").select("id, description, amount_cents, paid_by, currency, created_at, deleted_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
 
@@ -139,21 +139,40 @@ export default async function TripPage({
     who: nameOf(a.user_id),
   }));
   const allSplits = splits ?? [];
-  const expenseRows = (expenses ?? []).map((e) => ({
+  const activeExpenses = (expenses ?? []).filter((e) => !e.deleted_at);
+  const expenseRows = activeExpenses.map((e) => ({
     id: e.id,
     description: e.description,
     amount_cents: e.amount_cents,
+    currency: e.currency ?? "USD",
+    created_at: e.created_at,
     payer_name: nameOf(e.paid_by),
     shared_with: allSplits
       .filter((s) => s.expense_id === e.id)
       .map((s) => nameOf(s.user_id)),
   }));
 
+  const removedExpenses = (expenses ?? [])
+    .filter((e) => e.deleted_at)
+    .map((e) => ({
+      id: e.id,
+      description: e.description,
+      amount_cents: e.amount_cents,
+      currency: e.currency ?? "USD",
+      payer_name: nameOf(e.paid_by),
+      removed_at: e.deleted_at as string,
+    }));
+
   // Balances: what each member paid minus what they owe (their shares).
+  // Soft-deleted costs are excluded so removing one updates balances correctly.
+  const activeExpenseIds = new Set(activeExpenses.map((e) => e.id));
   const paid: Record<string, number> = {};
-  for (const e of expenses ?? []) paid[e.paid_by] = (paid[e.paid_by] ?? 0) + e.amount_cents;
+  for (const e of activeExpenses) paid[e.paid_by] = (paid[e.paid_by] ?? 0) + e.amount_cents;
   const owed: Record<string, number> = {};
-  for (const s of allSplits) owed[s.user_id] = (owed[s.user_id] ?? 0) + s.share_cents;
+  for (const s of allSplits) {
+    if (!activeExpenseIds.has(s.expense_id)) continue; // skip removed costs
+    owed[s.user_id] = (owed[s.user_id] ?? 0) + s.share_cents;
+  }
 
   // Recorded payments: when A pays B, A's net goes up and B's net goes down.
   const settledNet: Record<string, number> = {};
@@ -169,7 +188,7 @@ export default async function TripPage({
       (paid[m.user_id] ?? 0) - (owed[m.user_id] ?? 0) + (settledNet[m.user_id] ?? 0),
   }));
 
-  const hasMoneyActivity = (expenses ?? []).length > 0 || (payments ?? []).length > 0;
+  const hasMoneyActivity = activeExpenses.length > 0 || (payments ?? []).length > 0;
   const allSettled = hasMoneyActivity && balances.every((b) => b.net_cents === 0);
 
   const recordedPayments = (payments ?? []).map((p) => ({
@@ -261,6 +280,7 @@ export default async function TripPage({
           recordedPayments={recordedPayments}
           allSettled={allSettled}
           tripCurrency={trip.main_currency ?? "USD"}
+          removedExpenses={removedExpenses}
         />
         <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} members={members} />
       </Box>

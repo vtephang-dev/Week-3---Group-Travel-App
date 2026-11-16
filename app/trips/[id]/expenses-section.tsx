@@ -20,6 +20,7 @@ import Checkbox from "@mui/material/Checkbox";
 import MenuItem from "@mui/material/MenuItem";
 import RadioGroup from "@mui/material/RadioGroup";
 import Radio from "@mui/material/Radio";
+import Chip from "@mui/material/Chip";
 
 export type Member = { user_id: string; name: string };
 
@@ -29,8 +30,19 @@ export type Expense = {
   id: string;
   description: string;
   amount_cents: number;
+  currency: string;
+  created_at: string;
   payer_name: string;
   shared_with: string[]; // names
+};
+
+export type RemovedExpense = {
+  id: string;
+  description: string;
+  amount_cents: number;
+  currency: string;
+  payer_name: string;
+  removed_at: string;
 };
 
 export type Balance = { user_id: string; name: string; net_cents: number };
@@ -38,6 +50,14 @@ export type Settlement = { from: string; to: string; amount_cents: number };
 
 function money(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function amountWithCurrency(cents: number, currency: string) {
+  return `${currency} ${(cents / 100).toFixed(2)}`;
+}
+
+function addedOn(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 export default function ExpensesSection({
@@ -50,6 +70,7 @@ export default function ExpensesSection({
   recordedPayments,
   allSettled,
   tripCurrency,
+  removedExpenses,
 }: {
   tripId: string;
   expenses: Expense[];
@@ -60,6 +81,7 @@ export default function ExpensesSection({
   recordedPayments: RecordedPayment[];
   allSettled: boolean;
   tripCurrency: string;
+  removedExpenses: RemovedExpense[];
 }) {
   const router = useRouter();
   const [description, setDescription] = useState("");
@@ -115,8 +137,9 @@ export default function ExpensesSection({
   }
 
   async function removeExpense(id: string) {
+    // Soft-delete: keep the row, mark when it was removed (never silently lost).
     const supabase = createClient();
-    await supabase.from("expenses").delete().eq("id", id);
+    await supabase.from("expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id);
     router.refresh();
   }
 
@@ -167,7 +190,13 @@ export default function ExpensesSection({
 
     const { data: exp, error: expErr } = await supabase
       .from("expenses")
-      .insert({ trip_id: tripId, description, amount_cents: totalCents, split_mode: splitMode })
+      .insert({
+        trip_id: tripId,
+        description,
+        amount_cents: totalCents,
+        split_mode: splitMode,
+        currency: tripCurrency,
+      })
       .select("id")
       .single();
 
@@ -221,18 +250,18 @@ export default function ExpensesSection({
                 }
               >
                 <ListItemText
-                  primary={`${e.description} — ${money(e.amount_cents)}`}
+                  primary={`${e.description} — ${amountWithCurrency(e.amount_cents, e.currency)}`}
                   secondary={
-                    e.shared_with.length > 0
+                    (e.shared_with.length > 0
                       ? `Paid by ${e.payer_name} · split with ${e.shared_with.join(", ")}`
-                      : `Paid by ${e.payer_name}`
+                      : `Paid by ${e.payer_name}`) + ` · added ${addedOn(e.created_at)}`
                   }
                 />
               </ListItem>
             ))}
           </List>
           <Typography variant="subtitle2" sx={{ mt: 2 }}>
-            Total: {money(total)}
+            Total: {amountWithCurrency(total, tripCurrency)}
           </Typography>
 
           <Divider sx={{ my: 2 }} />
@@ -329,6 +358,25 @@ export default function ExpensesSection({
             </>
           )}
         </>
+      )}
+
+      {removedExpenses.length > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+            Removed costs (kept for the record)
+          </Typography>
+          <Stack spacing={0.5}>
+            {removedExpenses.map((e) => (
+              <Stack key={e.id} direction="row" sx={{ alignItems: "center", gap: 1 }}>
+                <Chip label="Removed" size="small" variant="outlined" />
+                <Typography variant="body2" color="text.secondary">
+                  {e.description} — {amountWithCurrency(e.amount_cents, e.currency)} · paid by{" "}
+                  {e.payer_name} · removed {addedOn(e.removed_at)}
+                </Typography>
+              </Stack>
+            ))}
+          </Stack>
+        </Box>
       )}
 
       <Divider sx={{ my: 2 }} />
