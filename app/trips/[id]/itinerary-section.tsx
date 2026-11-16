@@ -24,6 +24,8 @@ export type ItineraryItem = {
   version: number;
   created_by: string;
   who: string;
+  opted_in_names: string[];
+  i_am_in: boolean;
 };
 
 function formatDay(day: string | null) {
@@ -163,6 +165,20 @@ export default function ItinerarySection({
     router.refresh();
   }
 
+  async function toggleOptin(itemId: string, iAmIn: boolean) {
+    const supabase = createClient();
+    if (iAmIn) {
+      await supabase
+        .from("item_optins")
+        .delete()
+        .eq("item_id", itemId)
+        .eq("user_id", currentUserId);
+    } else {
+      await supabase.from("item_optins").insert({ item_id: itemId, trip_id: tripId });
+    }
+    router.refresh();
+  }
+
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
       <Typography variant="h6" sx={{ mb: 2 }}>
@@ -252,6 +268,21 @@ export default function ItinerarySection({
                         {item.cost_cents != null ? ` · ${formatCost(item.cost_cents, item.currency)}` : ""}
                         {` · added by ${item.who}`}
                       </Typography>
+                      <Stack direction="row" sx={{ alignItems: "center", gap: 1, mt: 0.5, flexWrap: "wrap" }}>
+                        <Button
+                          size="small"
+                          variant={item.i_am_in ? "outlined" : "contained"}
+                          onClick={() => toggleOptin(item.id, item.i_am_in)}
+                          sx={{ py: 0, minWidth: 0 }}
+                        >
+                          {item.i_am_in ? "Leave" : "I'm in"}
+                        </Button>
+                        <Typography variant="caption" color="text.secondary">
+                          {item.opted_in_names.length > 0
+                            ? `In: ${item.opted_in_names.join(", ")}`
+                            : "No one's in yet"}
+                        </Typography>
+                      </Stack>
                     </Box>
                     <Button size="small" onClick={() => startEdit(item)}>
                       Edit

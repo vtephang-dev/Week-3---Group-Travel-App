@@ -71,6 +71,11 @@ export default async function TripPage({
     .eq("trip_id", id)
     .order("paid_at", { ascending: true });
 
+  const { data: itemOptins } = await supabase
+    .from("item_optins")
+    .select("item_id, user_id")
+    .eq("trip_id", id);
+
   const memberIds = (memberRows ?? []).map((m) => m.user_id);
   const { data: profiles } = await supabase
     .from("profiles")
@@ -105,19 +110,24 @@ export default async function TripPage({
       expired: new Date(inv.expires_at).getTime() < now,
     }));
 
-  const itineraryRows = (itinerary ?? []).map((it) => ({
-    id: it.id,
-    title: it.title,
-    details: it.details,
-    day: it.day,
-    start_time: it.start_time,
-    place: it.place,
-    cost_cents: it.cost_cents,
-    currency: it.currency,
-    version: it.version ?? 0,
-    created_by: it.created_by,
-    who: nameOf(it.created_by),
-  }));
+  const itineraryRows = (itinerary ?? []).map((it) => {
+    const optins = (itemOptins ?? []).filter((o) => o.item_id === it.id);
+    return {
+      id: it.id,
+      title: it.title,
+      details: it.details,
+      day: it.day,
+      start_time: it.start_time,
+      place: it.place,
+      cost_cents: it.cost_cents,
+      currency: it.currency,
+      version: it.version ?? 0,
+      created_by: it.created_by,
+      who: nameOf(it.created_by),
+      opted_in_names: optins.map((o) => nameOf(o.user_id)),
+      i_am_in: optins.some((o) => o.user_id === user.id),
+    };
+  });
 
   const ideasWithComments = (ideas ?? []).map((idea) => ({
     ...idea,
