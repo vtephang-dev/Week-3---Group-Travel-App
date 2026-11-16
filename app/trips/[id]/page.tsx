@@ -33,13 +33,14 @@ export default async function TripPage({
 
   if (!trip) notFound();
 
-  const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: arrivals }, { data: expenses }] =
+  const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: arrivals }, { data: expenses }, { data: splits }] =
     await Promise.all([
       supabase.from("trip_members").select("user_id").eq("trip_id", id),
       supabase.from("itinerary_items").select("id, title, details, day").eq("trip_id", id).order("day", { ascending: true }),
       supabase.from("ideas").select("id, title, notes, decided").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("arrivals").select("id, arrive_at, location, notes, user_id").eq("trip_id", id).order("arrive_at", { ascending: true }),
       supabase.from("expenses").select("id, description, amount_cents, paid_by").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
 
   const memberIds = (memberRows ?? []).map((m) => m.user_id);
@@ -62,13 +63,52 @@ export default async function TripPage({
     notes: a.notes,
     who: nameOf(a.user_id),
   }));
+  const allSplits = splits ?? [];
   const expenseRows = (expenses ?? []).map((e) => ({
     id: e.id,
     description: e.description,
     amount_cents: e.amount_cents,
-    paid_by: e.paid_by,
     payer_name: nameOf(e.paid_by),
+    shared_with: allSplits
+      .filter((s) => s.expense_id === e.id)
+      .map((s) => nameOf(s.user_id)),
   }));
+
+  // Balances: what each member paid minus what they owe (their shares).
+  const paid: Record<string, number> = {};
+  for (const e of expenses ?? []) paid[e.paid_by] = (paid[e.paid_by] ?? 0) + e.amount_cents;
+  const owed: Record<string, number> = {};
+  for (const s of allSplits) owed[s.user_id] = (owed[s.user_id] ?? 0) + s.share_cents;
+
+  const balances = members.map((m) => ({
+    user_id: m.user_id,
+    name: m.name,
+    net_cents: (paid[m.user_id] ?? 0) - (owed[m.user_id] ?? 0),
+  }));
+
+  // Settle up: greedily match the biggest debtor with the biggest creditor.
+  const creditors = balances
+    .filter((b) => b.net_cents > 0)
+    .map((b) => ({ ...b }))
+    .sort((a, b) => b.net_cents - a.net_cents);
+  const debtors = balances
+    .filter((b) => b.net_cents < 0)
+    .map((b) => ({ ...b, net_cents: -b.net_cents }))
+    .sort((a, b) => b.net_cents - a.net_cents);
+
+  const settlements: { from: string; to: string; amount_cents: number }[] = [];
+  let ci = 0;
+  let di = 0;
+  while (ci < creditors.length && di < debtors.length) {
+    const pay = Math.min(creditors[ci].net_cents, debtors[di].net_cents);
+    if (pay > 0) {
+      settlements.push({ from: debtors[di].name, to: creditors[ci].name, amount_cents: pay });
+    }
+    creditors[ci].net_cents -= pay;
+    debtors[di].net_cents -= pay;
+    if (creditors[ci].net_cents === 0) ci++;
+    if (debtors[di].net_cents === 0) di++;
+  }
 
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
@@ -96,7 +136,14 @@ export default async function TripPage({
         <MembersSection members={members} inviteUrl={inviteUrl} currentUserId={user.id} />
         <ItinerarySection tripId={id} items={itinerary ?? []} />
         <IdeasSection tripId={id} ideas={ideas ?? []} />
-        <ExpensesSection tripId={id} expenses={expenseRows} members={members} currentUserId={user.id} />
+        <ExpensesSection
+          tripId={id}
+          expenses={expenseRows}
+          members={members}
+          currentUserId={user.id}
+          balances={balances}
+          settlements={settlements}
+        />
         <ArrivalsSection tripId={id} arrivals={arrivalRows} />
       </Box>
     </Container>
