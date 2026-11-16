@@ -28,18 +28,37 @@ export default function MembersSection({
   inviteUrl,
   currentUserId,
   pendingInvites,
+  isOwner,
 }: {
   tripId: string;
   members: Member[];
   inviteUrl: string;
   currentUserId: string;
   pendingInvites: PendingInvite[];
+  isOwner: boolean;
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  async function removeMember(userId: string, name: string) {
+    if (
+      !window.confirm(
+        `Remove ${name} from this trip? They lose access right away.`
+      )
+    )
+      return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("trip_members")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("user_id", userId);
+    if (error) return setError(error.message);
+    router.refresh();
+  }
 
   async function copyLink() {
     try {
@@ -93,22 +112,39 @@ export default function MembersSection({
         Who&apos;s going ({members.length})
       </Typography>
 
-      <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, mb: 3 }}>
+      <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, mb: 2 }}>
         {members.map((m) => (
           <Chip
             key={m.user_id}
             label={m.user_id === currentUserId ? `${m.name} (you)` : m.name}
             color={m.user_id === currentUserId ? "primary" : "default"}
+            onDelete={
+              isOwner && m.user_id !== currentUserId
+                ? () => removeMember(m.user_id, m.name)
+                : undefined
+            }
           />
         ))}
       </Stack>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      <Alert severity="info" icon={false} sx={{ mb: 3 }}>
+        🔒 <strong>Who can see this trip:</strong> only the people added to it. Your
+        plans, arrivals, and expense details are visible to trip members only —
+        anyone you haven&apos;t invited can&apos;t see anything. Only the organizer can
+        remove a member, and a removed person loses access right away.
+      </Alert>
 
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
         Invite someone by email
       </Typography>
       <Box component="form" onSubmit={sendInvite} sx={{ mb: 2 }}>
         <Stack spacing={1}>
-          {error && <Alert severity="error">{error}</Alert>}
           <Stack direction="row" spacing={1}>
             <TextField
               type="email"

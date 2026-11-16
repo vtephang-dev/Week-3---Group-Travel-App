@@ -212,6 +212,7 @@ export default async function TripPage({
           inviteUrl={inviteUrl}
           currentUserId={user.id}
           pendingInvites={pendingInvites}
+          isOwner={trip.owner_id === user.id}
         />
         <ItinerarySection
           tripId={id}
