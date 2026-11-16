@@ -34,6 +34,8 @@ export type Expense = {
   created_at: string;
   payer_name: string;
   shared_with: string[]; // names
+  split_mode: string;
+  breakdown: { name: string; share_cents: number }[];
 };
 
 export type RemovedExpense = {
@@ -88,6 +90,7 @@ export default function ExpensesSection({
   const [amount, setAmount] = useState("");
   const [payTo, setPayTo] = useState("");
   const [payAmount, setPayAmount] = useState("");
+  const [openBreakdown, setOpenBreakdown] = useState<string | null>(null);
 
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
@@ -238,28 +241,61 @@ export default function ExpensesSection({
         </Typography>
       ) : (
         <>
-          <List dense>
-            {expenses.map((e) => (
-              <ListItem
-                key={e.id}
-                divider
-                secondaryAction={
-                  <Button size="small" color="error" onClick={() => removeExpense(e.id)}>
-                    Delete
-                  </Button>
-                }
-              >
-                <ListItemText
-                  primary={`${e.description} — ${amountWithCurrency(e.amount_cents, e.currency)}`}
-                  secondary={
-                    (e.shared_with.length > 0
-                      ? `Paid by ${e.payer_name} · split with ${e.shared_with.join(", ")}`
-                      : `Paid by ${e.payer_name}`) + ` · added ${addedOn(e.created_at)}`
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
+          <Stack spacing={1}>
+            {expenses.map((e) => {
+              const sum = e.breakdown.reduce((s, b) => s + b.share_cents, 0);
+              const n = e.breakdown.length;
+              const open = openBreakdown === e.id;
+              return (
+                <Box key={e.id}>
+                  <Stack direction="row" sx={{ alignItems: "flex-start", gap: 1 }}>
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {e.description} — {amountWithCurrency(e.amount_cents, e.currency)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        {(e.shared_with.length > 0
+                          ? `Paid by ${e.payer_name} · split with ${e.shared_with.join(", ")}`
+                          : `Paid by ${e.payer_name}`) + ` · added ${addedOn(e.created_at)}`}
+                      </Typography>
+                      {n > 0 && (
+                        <Button
+                          size="small"
+                          onClick={() => setOpenBreakdown(open ? null : e.id)}
+                          sx={{ textTransform: "none", color: "text.secondary", minWidth: 0, px: 0.5 }}
+                        >
+                          How this was split {open ? "▲" : "▼"}
+                        </Button>
+                      )}
+                      {open && (
+                        <Box sx={{ pl: 1, mt: 0.5, borderLeft: "2px solid", borderColor: "divider" }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                            {e.split_mode === "custom"
+                              ? "Split by the custom amount set for each person."
+                              : `Split evenly among ${n} ${n === 1 ? "person" : "people"} — any leftover cents go to the first person so it adds up exactly.`}
+                          </Typography>
+                          <Stack spacing={0.25}>
+                            {e.breakdown.map((b, i) => (
+                              <Typography key={i} variant="body2">
+                                {b.name}: {amountWithCurrency(b.share_cents, e.currency)}
+                              </Typography>
+                            ))}
+                          </Stack>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                            Adds up to {amountWithCurrency(sum, e.currency)}.
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                    <Button size="small" color="error" onClick={() => removeExpense(e.id)}>
+                      Delete
+                    </Button>
+                  </Stack>
+                  <Divider sx={{ mt: 1 }} />
+                </Box>
+              );
+            })}
+          </Stack>
           <Typography variant="subtitle2" sx={{ mt: 2 }}>
             Total: {amountWithCurrency(total, tripCurrency)}
           </Typography>

@@ -55,7 +55,7 @@ export default async function TripPage({
       supabase.from("ideas").select("id, title, notes, decided, created_by, created_at, link, cost_cents").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("arrivals").select("id, arrive_at, location, notes, user_id, flight_number").eq("trip_id", id).order("arrive_at", { ascending: true }),
-      supabase.from("expenses").select("id, description, amount_cents, paid_by, currency, created_at, deleted_at").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("expenses").select("id, description, amount_cents, paid_by, currency, created_at, deleted_at, split_mode").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
 
@@ -152,17 +152,20 @@ export default async function TripPage({
   }));
   const allSplits = splits ?? [];
   const activeExpenses = (expenses ?? []).filter((e) => !e.deleted_at);
-  const expenseRows = activeExpenses.map((e) => ({
-    id: e.id,
-    description: e.description,
-    amount_cents: e.amount_cents,
-    currency: e.currency ?? "USD",
-    created_at: e.created_at,
-    payer_name: nameOf(e.paid_by),
-    shared_with: allSplits
-      .filter((s) => s.expense_id === e.id)
-      .map((s) => nameOf(s.user_id)),
-  }));
+  const expenseRows = activeExpenses.map((e) => {
+    const mySplits = allSplits.filter((s) => s.expense_id === e.id);
+    return {
+      id: e.id,
+      description: e.description,
+      amount_cents: e.amount_cents,
+      currency: e.currency ?? "USD",
+      created_at: e.created_at,
+      split_mode: e.split_mode ?? "even",
+      payer_name: nameOf(e.paid_by),
+      shared_with: mySplits.map((s) => nameOf(s.user_id)),
+      breakdown: mySplits.map((s) => ({ name: nameOf(s.user_id), share_cents: s.share_cents })),
+    };
+  });
 
   const removedExpenses = (expenses ?? [])
     .filter((e) => e.deleted_at)
