@@ -7,6 +7,7 @@ import Stack from "@mui/material/Stack";
 import Paper from "@mui/material/Paper";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
+import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import LogoutButton from "./logout-button";
 import NewTripForm from "./new-trip-form";
@@ -66,11 +67,13 @@ export default async function DashboardPage() {
           ) : (
             <List>
               {tripList.map((trip) => (
-                <ListItem key={trip.id} divider>
-                  <ListItemText
-                    primary={trip.name}
-                    secondary={trip.destination ?? "No destination set"}
-                  />
+                <ListItem key={trip.id} divider disablePadding>
+                  <ListItemButton href={`/trips/${trip.id}`}>
+                    <ListItemText
+                      primary={trip.name}
+                      secondary={trip.destination ?? "No destination set"}
+                    />
+                  </ListItemButton>
                 </ListItem>
               ))}
             </List>
