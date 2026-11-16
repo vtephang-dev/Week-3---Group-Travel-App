@@ -26,6 +26,8 @@ export type Idea = {
   title: string;
   notes: string | null;
   decided: boolean;
+  created_by: string;
+  who: string;
   comments: IdeaComment[];
 };
 
@@ -43,15 +45,29 @@ export default function IdeasSection({
   tripId,
   ideas,
   currentUserId,
+  isOwner,
 }: {
   tripId: string;
   ideas: Idea[];
   currentUserId: string;
+  isOwner: boolean;
 }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+
+  async function saveEdit(id: string) {
+    const text = editTitle.trim();
+    if (!text) return;
+    const supabase = createClient();
+    const { error } = await supabase.from("ideas").update({ title: text }).eq("id", id);
+    if (error) return setError(error.message);
+    setEditingId(null);
+    router.refresh();
+  }
 
   async function addIdea(e: React.FormEvent) {
     e.preventDefault();
@@ -89,18 +105,55 @@ export default function IdeasSection({
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ mb: 2 }}>
-          {ideas.map((idea) => (
+          {ideas.map((idea) => {
+            const canManage = idea.created_by === currentUserId || isOwner;
+            return (
             <Box key={idea.id}>
-              <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
-                <Typography sx={{ flexGrow: 1 }}>{idea.title}</Typography>
-                {idea.decided && <Chip label="Decided" color="success" size="small" />}
-                <Button size="small" onClick={() => toggleDecided(idea.id, idea.decided)}>
-                  {idea.decided ? "Undo" : "Decide"}
-                </Button>
-                <Button size="small" color="error" onClick={() => remove(idea.id)}>
-                  Delete
-                </Button>
-              </Stack>
+              {editingId === idea.id ? (
+                <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                  <TextField
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    size="small"
+                    fullWidth
+                  />
+                  <Button size="small" variant="contained" onClick={() => saveEdit(idea.id)}>
+                    Save
+                  </Button>
+                  <Button size="small" color="inherit" onClick={() => setEditingId(null)}>
+                    Cancel
+                  </Button>
+                </Stack>
+              ) : (
+                <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
+                  <Box sx={{ flexGrow: 1 }}>
+                    <Typography>{idea.title}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      added by {idea.who}
+                    </Typography>
+                  </Box>
+                  {idea.decided && <Chip label="Decided" color="success" size="small" />}
+                  {canManage && (
+                    <>
+                      <Button size="small" onClick={() => toggleDecided(idea.id, idea.decided)}>
+                        {idea.decided ? "Undo" : "Decide"}
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setEditingId(idea.id);
+                          setEditTitle(idea.title);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button size="small" color="error" onClick={() => remove(idea.id)}>
+                        Delete
+                      </Button>
+                    </>
+                  )}
+                </Stack>
+              )}
 
               <IdeaComments
                 tripId={tripId}
@@ -111,7 +164,8 @@ export default function IdeasSection({
 
               <Divider sx={{ mt: 1 }} />
             </Box>
-          ))}
+            );
+          })}
         </Stack>
       )}
 
