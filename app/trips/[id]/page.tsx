@@ -52,7 +52,7 @@ export default async function TripPage({
       supabase.from("itinerary_items").select("id, title, details, day").eq("trip_id", id).order("day", { ascending: true }),
       supabase.from("ideas").select("id, title, notes, decided").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
-      supabase.from("arrivals").select("id, arrive_at, location, notes, user_id").eq("trip_id", id).order("arrive_at", { ascending: true }),
+      supabase.from("arrivals").select("id, arrive_at, location, notes, user_id, flight_number").eq("trip_id", id).order("arrive_at", { ascending: true }),
       supabase.from("expenses").select("id, description, amount_cents, paid_by").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
@@ -111,9 +111,10 @@ export default async function TripPage({
   }));
   const arrivalRows = (arrivals ?? []).map((a) => ({
     id: a.id,
+    user_id: a.user_id,
     arrive_at: a.arrive_at,
     location: a.location,
-    notes: a.notes,
+    flight_number: a.flight_number,
     who: nameOf(a.user_id),
   }));
   const allSplits = splits ?? [];
@@ -207,7 +208,7 @@ export default async function TripPage({
           balances={balances}
           settlements={settlements}
         />
-        <ArrivalsSection tripId={id} arrivals={arrivalRows} />
+        <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} />
       </Box>
     </Container>
   );
