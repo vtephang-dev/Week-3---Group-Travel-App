@@ -262,7 +262,7 @@ export default async function TripPage({
           allSettled={allSettled}
           tripCurrency={trip.main_currency ?? "USD"}
         />
-        <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} />
+        <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} members={members} />
       </Box>
     </Container>
   );
