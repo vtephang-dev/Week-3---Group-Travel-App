@@ -1,18 +1,30 @@
-# ADR 1: Use Next.js with Material UI
+# ADR-0001: Use Next.js with Material UI
 
-**Status:** Accepted
-**Date:** 2026-11-12
+## Date and status
+November 12, 2026. Accepted.
 
 ## Context
-Next.js and Material UI were needed to build the webpages/screens, with a
-responsive design that works on phones and computers without having to create
-the design from scratch. It was also required to use Material UI as the design
-system.
+I needed to build the webpages/screens for the app with a responsive design that
+works on phones and computers, without creating the design from scratch. The
+challenge also required using Material UI as the design system.
+
+## Options
+- Plain React:
+  - Good: It is simple to start.
+  - Bad: It needs a separate place for the server code.
+- Next.js:
+  - Good: It holds the screens and the server code in one project, and works
+    well on Vercel.
+  - Bad: I have to learn which code runs in the browser and which runs on the
+    server.
 
 ## Decision
-I chose to use Next.js for the structure of the app, and Material UI for the
-look of the app.
+I chose Next.js for the structure of the app and Material UI for the look,
+because Next.js covers the screens and the server code in one project, and
+Material UI gives me a responsive design without building it from scratch.
 
 ## Consequences
-It allows me to build faster, but because Material UI is used often, it can make
-the app look unoriginal.
+I can build faster. I need to learn where my code runs — in the browser or on the
+server — which I'm still getting the hang of, and Material UI's interactive parts
+(like the theme file and buttons) need a "use client" line at the top. Because
+Material UI is used by many apps, the design can look a bit unoriginal.

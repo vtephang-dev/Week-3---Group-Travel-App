@@ -6,11 +6,26 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
+import Paper from "@mui/material/Paper";
+import Chip from "@mui/material/Chip";
 import ItinerarySection from "./itinerary-section";
 import IdeasSection from "./ideas-section";
 import ArrivalsSection from "./arrivals-section";
 import ExpensesSection from "./expenses-section";
 import MembersSection from "./members-section";
+
+function formatDateRange(start: string | null, end: string | null) {
+  const fmt = (d: string) =>
+    new Date(d + "T00:00:00").toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  if (start && end) return `${fmt(start)} – ${fmt(end)}`;
+  if (start) return `From ${fmt(start)}`;
+  if (end) return `Until ${fmt(end)}`;
+  return "Dates not set";
+}
 
 export default async function TripPage({
   params,
@@ -27,21 +42,34 @@ export default async function TripPage({
 
   const { data: trip } = await supabase
     .from("trips")
-    .select("id, name, destination, invite_code, owner_id")
+    .select("id, name, destination, invite_code, owner_id, start_date, end_date, main_currency")
     .eq("id", id)
     .single();
 
   if (!trip) notFound();
 
-  const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: arrivals }, { data: expenses }, { data: splits }] =
+  const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: ideaComments }, { data: arrivals }, { data: expenses }, { data: splits }] =
     await Promise.all([
       supabase.from("trip_members").select("user_id").eq("trip_id", id),
-      supabase.from("itinerary_items").select("id, title, details, day").eq("trip_id", id).order("day", { ascending: true }),
-      supabase.from("ideas").select("id, title, notes, decided").eq("trip_id", id).order("created_at", { ascending: true }),
-      supabase.from("arrivals").select("id, arrive_at, location, notes, user_id").eq("trip_id", id).order("arrive_at", { ascending: true }),
-      supabase.from("expenses").select("id, description, amount_cents, paid_by").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("itinerary_items").select("id, title, details, day, start_time, place, cost_cents, currency, version, created_by").eq("trip_id", id).order("day", { ascending: true, nullsFirst: false }).order("start_time", { ascending: true, nullsFirst: true }),
+      supabase.from("ideas").select("id, title, notes, decided, created_by, created_at, link, cost_cents").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("arrivals").select("id, arrive_at, location, notes, user_id, flight_number").eq("trip_id", id).order("arrive_at", { ascending: true }),
+      supabase.from("expenses").select("id, description, amount_cents, paid_by, currency, created_at, deleted_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
+
+  const { data: invites } = await supabase
+    .from("invites")
+    .select("id, email, expires_at")
+    .eq("trip_id", id)
+    .order("created_at", { ascending: true });
+
+  const { data: payments } = await supabase
+    .from("settlements")
+    .select("from_user, to_user, amount_cents, paid_at")
+    .eq("trip_id", id)
+    .order("paid_at", { ascending: true });
 
   const memberIds = (memberRows ?? []).map((m) => m.user_id);
   const { data: profiles } = await supabase
@@ -56,35 +84,133 @@ export default async function TripPage({
   };
 
   const members = memberIds.map((uid) => ({ user_id: uid, name: nameOf(uid) }));
+
+  // Emails of people already in the trip (profiles store the email as display_name).
+  const memberEmails = new Set<string>();
+  for (const p of profiles ?? []) {
+    if (p.display_name && p.display_name.includes("@")) {
+      memberEmails.add(p.display_name.toLowerCase());
+    }
+  }
+  if (user.email) memberEmails.add(user.email.toLowerCase());
+
+  // "Who hasn't joined yet" = invited emails that aren't members yet.
+  const now = Date.now();
+  const pendingInvites = (invites ?? [])
+    .filter((inv) => !memberEmails.has(inv.email.toLowerCase()))
+    .map((inv) => ({
+      id: inv.id,
+      email: inv.email,
+      expires_at: inv.expires_at,
+      expired: new Date(inv.expires_at).getTime() < now,
+    }));
+
+  const itineraryRows = (itinerary ?? []).map((it) => ({
+    id: it.id,
+    title: it.title,
+    details: it.details,
+    day: it.day,
+    start_time: it.start_time,
+    place: it.place,
+    cost_cents: it.cost_cents,
+    currency: it.currency,
+    version: it.version ?? 0,
+    created_by: it.created_by,
+    who: nameOf(it.created_by),
+  }));
+
+  const ideasWithComments = (ideas ?? []).map((idea) => ({
+    ...idea,
+    who: nameOf(idea.created_by),
+    comments: (ideaComments ?? [])
+      .filter((c) => c.idea_id === idea.id)
+      .map((c) => ({
+        id: c.id,
+        body: c.body,
+        author_id: c.author_id,
+        author_name: nameOf(c.author_id),
+        created_at: c.created_at,
+      })),
+  }));
   const arrivalRows = (arrivals ?? []).map((a) => ({
     id: a.id,
+    user_id: a.user_id,
     arrive_at: a.arrive_at,
     location: a.location,
-    notes: a.notes,
+    flight_number: a.flight_number,
     who: nameOf(a.user_id),
   }));
   const allSplits = splits ?? [];
-  const expenseRows = (expenses ?? []).map((e) => ({
+  const activeExpenses = (expenses ?? []).filter((e) => !e.deleted_at);
+  const expenseRows = activeExpenses.map((e) => ({
     id: e.id,
     description: e.description,
     amount_cents: e.amount_cents,
+    currency: e.currency ?? "USD",
+    created_at: e.created_at,
     payer_name: nameOf(e.paid_by),
     shared_with: allSplits
       .filter((s) => s.expense_id === e.id)
       .map((s) => nameOf(s.user_id)),
   }));
 
+  const removedExpenses = (expenses ?? [])
+    .filter((e) => e.deleted_at)
+    .map((e) => ({
+      id: e.id,
+      description: e.description,
+      amount_cents: e.amount_cents,
+      currency: e.currency ?? "USD",
+      payer_name: nameOf(e.paid_by),
+      removed_at: e.deleted_at as string,
+    }));
+
   // Balances: what each member paid minus what they owe (their shares).
+  // Soft-deleted costs are excluded so removing one updates balances correctly.
+  const activeExpenseIds = new Set(activeExpenses.map((e) => e.id));
   const paid: Record<string, number> = {};
-  for (const e of expenses ?? []) paid[e.paid_by] = (paid[e.paid_by] ?? 0) + e.amount_cents;
+  for (const e of activeExpenses) paid[e.paid_by] = (paid[e.paid_by] ?? 0) + e.amount_cents;
   const owed: Record<string, number> = {};
-  for (const s of allSplits) owed[s.user_id] = (owed[s.user_id] ?? 0) + s.share_cents;
+  for (const s of allSplits) {
+    if (!activeExpenseIds.has(s.expense_id)) continue; // skip removed costs
+    owed[s.user_id] = (owed[s.user_id] ?? 0) + s.share_cents;
+  }
+
+  // Recorded payments: when A pays B, A's net goes up and B's net goes down.
+  const settledNet: Record<string, number> = {};
+  for (const p of payments ?? []) {
+    settledNet[p.from_user] = (settledNet[p.from_user] ?? 0) + p.amount_cents;
+    settledNet[p.to_user] = (settledNet[p.to_user] ?? 0) - p.amount_cents;
+  }
 
   const balances = members.map((m) => ({
     user_id: m.user_id,
     name: m.name,
-    net_cents: (paid[m.user_id] ?? 0) - (owed[m.user_id] ?? 0),
+    net_cents:
+      (paid[m.user_id] ?? 0) - (owed[m.user_id] ?? 0) + (settledNet[m.user_id] ?? 0),
   }));
+
+  const hasMoneyActivity = activeExpenses.length > 0 || (payments ?? []).length > 0;
+  const allSettled = hasMoneyActivity && balances.every((b) => b.net_cents === 0);
+
+  const recordedPayments = (payments ?? []).map((p) => ({
+    from_name: nameOf(p.from_user),
+    to_name: nameOf(p.to_user),
+    amount_cents: p.amount_cents,
+  }));
+
+  // "Trip at a glance" summary numbers.
+  const tripCurrency = trip.main_currency ?? "USD";
+  const planCount = (itinerary ?? []).length;
+  const summaryTotalCents = activeExpenses.reduce((s, e) => s + e.amount_cents, 0);
+  const myBalance = balances.find((b) => b.user_id === user.id) ?? null;
+  const fmtMoney = (cents: number) => `${tripCurrency} ${(cents / 100).toFixed(2)}`;
+  const myBalanceLabel =
+    myBalance == null || myBalance.net_cents === 0
+      ? null
+      : myBalance.net_cents > 0
+        ? `you're owed ${fmtMoney(myBalance.net_cents)}`
+        : `you owe ${fmtMoney(-myBalance.net_cents)}`;
 
   // Settle up: greedily match the biggest debtor with the biggest creditor.
   const creditors = balances
@@ -131,11 +257,59 @@ export default async function TripPage({
               {trip.destination}
             </Typography>
           )}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {formatDateRange(trip.start_date, trip.end_date)} · Settles up in{" "}
+            {trip.main_currency ?? "USD"}
+          </Typography>
         </Box>
 
-        <MembersSection members={members} inviteUrl={inviteUrl} currentUserId={user.id} />
-        <ItinerarySection tripId={id} items={itinerary ?? []} />
-        <IdeasSection tripId={id} ideas={ideas ?? []} />
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="overline" color="text.secondary">
+            Trip at a glance
+          </Typography>
+          <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, mt: 0.5 }}>
+            <Chip size="small" label={`👥 ${members.length} ${members.length === 1 ? "person" : "people"}`} />
+            {planCount > 0 && (
+              <Chip size="small" label={`📋 ${planCount} ${planCount === 1 ? "plan" : "plans"}`} />
+            )}
+            {summaryTotalCents > 0 && (
+              <Chip size="small" label={`💰 ${fmtMoney(summaryTotalCents)} total`} />
+            )}
+            {myBalanceLabel && (
+              <Chip
+                size="small"
+                color={myBalance && myBalance.net_cents > 0 ? "success" : "warning"}
+                label={myBalanceLabel}
+              />
+            )}
+            {pendingInvites.length > 0 && (
+              <Chip size="small" variant="outlined" label={`⏳ ${pendingInvites.length} invited`} />
+            )}
+          </Stack>
+        </Paper>
+
+        <MembersSection
+          tripId={id}
+          members={members}
+          inviteUrl={inviteUrl}
+          currentUserId={user.id}
+          pendingInvites={pendingInvites}
+          isOwner={trip.owner_id === user.id}
+        />
+        <ItinerarySection
+          tripId={id}
+          items={itineraryRows}
+          currentUserId={user.id}
+          isOwner={trip.owner_id === user.id}
+          tripCurrency={trip.main_currency ?? "USD"}
+        />
+        <IdeasSection
+          tripId={id}
+          ideas={ideasWithComments}
+          currentUserId={user.id}
+          isOwner={trip.owner_id === user.id}
+          tripCurrency={trip.main_currency ?? "USD"}
+        />
         <ExpensesSection
           tripId={id}
           expenses={expenseRows}
@@ -143,8 +317,12 @@ export default async function TripPage({
           currentUserId={user.id}
           balances={balances}
           settlements={settlements}
+          recordedPayments={recordedPayments}
+          allSettled={allSettled}
+          tripCurrency={trip.main_currency ?? "USD"}
+          removedExpenses={removedExpenses}
         />
-        <ArrivalsSection tripId={id} arrivals={arrivalRows} />
+        <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} members={members} />
       </Box>
     </Container>
   );

@@ -13,6 +13,14 @@ import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import Link from "@mui/material/Link";
 
+// Where to go after auth: a same-site "next" path if present, else the dashboard.
+// The leading-slash check blocks open-redirects to other sites.
+function nextDest() {
+  if (typeof window === "undefined") return "/dashboard";
+  const n = new URLSearchParams(window.location.search).get("next");
+  return n && n.startsWith("/") ? n : "/dashboard";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -36,7 +44,7 @@ export default function LoginPage() {
       setError(error.message);
       return;
     }
-    router.push("/dashboard");
+    router.push(nextDest());
     router.refresh();
   }
 

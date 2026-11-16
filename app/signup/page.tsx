@@ -13,6 +13,13 @@ import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import Link from "@mui/material/Link";
 
+// Where to go after sign-up: a same-site "next" path if present, else dashboard.
+function nextDest() {
+  if (typeof window === "undefined") return "/dashboard";
+  const n = new URLSearchParams(window.location.search).get("next");
+  return n && n.startsWith("/") ? n : "/dashboard";
+}
+
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -39,7 +46,7 @@ export default function SignupPage() {
     // If email confirmation is off, a session is returned and we can go
     // straight in. If it's on, the user must confirm via email first.
     if (data.session) {
-      router.push("/dashboard");
+      router.push(nextDest());
       router.refresh();
     } else {
       setMessage("Account created! Check your email to confirm, then log in.");

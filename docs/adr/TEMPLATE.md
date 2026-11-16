@@ -1,13 +1,24 @@
-# ADR [number]: [short title of the decision]
+# ADR-0000: [The decision, in a few words]
 
-**Status:** Accepted
-**Date:** 2026-11-12
+## Date and status
+[Date]. [Proposed, Accepted, or Replaced by ADR-0000]
 
 ## Context
-<!-- What was the situation? What did we need to solve or choose? -->
+What is happening? What problem pushed you to make a choice?
+
+## Options
+What choices did you look at? Write the good and bad parts of each one.
+
+- Option 1:
+  - Good:
+  - Bad:
+- Option 2:
+  - Good:
+  - Bad:
 
 ## Decision
-<!-- What did we decide to use or do? -->
+What did you choose, and why?
 
 ## Consequences
-<!-- What do we gain? What are the trade-offs or downsides? -->
+What happens because of this choice? What gets easier? What gets harder?
+What do you need to do next?
