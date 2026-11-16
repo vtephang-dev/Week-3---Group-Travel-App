@@ -24,6 +24,7 @@ because Next.js covers the screens and the server code in one project, and
 Material UI gives me a responsive design without building it from scratch.
 
 ## Consequences
-I can build faster. I need to learn where code runs (browser vs. server), and
-Material UI's theme file needs a "use client" line at the top. Because Material
-UI is used by many apps, the design can look a bit unoriginal.
+I can build faster. I need to learn where my code runs — in the browser or on the
+server — which I'm still getting the hang of, and Material UI's interactive parts
+(like the theme file and buttons) need a "use client" line at the top. Because
+Material UI is used by many apps, the design can look a bit unoriginal.
