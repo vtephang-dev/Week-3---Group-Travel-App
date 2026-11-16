@@ -6,6 +6,8 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
+import Paper from "@mui/material/Paper";
+import Chip from "@mui/material/Chip";
 import ItinerarySection from "./itinerary-section";
 import IdeasSection from "./ideas-section";
 import ArrivalsSection from "./arrivals-section";
@@ -197,6 +199,19 @@ export default async function TripPage({
     amount_cents: p.amount_cents,
   }));
 
+  // "Trip at a glance" summary numbers.
+  const tripCurrency = trip.main_currency ?? "USD";
+  const planCount = (itinerary ?? []).length;
+  const summaryTotalCents = activeExpenses.reduce((s, e) => s + e.amount_cents, 0);
+  const myBalance = balances.find((b) => b.user_id === user.id) ?? null;
+  const fmtMoney = (cents: number) => `${tripCurrency} ${(cents / 100).toFixed(2)}`;
+  const myBalanceLabel =
+    myBalance == null || myBalance.net_cents === 0
+      ? null
+      : myBalance.net_cents > 0
+        ? `you're owed ${fmtMoney(myBalance.net_cents)}`
+        : `you owe ${fmtMoney(-myBalance.net_cents)}`;
+
   // Settle up: greedily match the biggest debtor with the biggest creditor.
   const creditors = balances
     .filter((b) => b.net_cents > 0)
@@ -247,6 +262,31 @@ export default async function TripPage({
             {trip.main_currency ?? "USD"}
           </Typography>
         </Box>
+
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="overline" color="text.secondary">
+            Trip at a glance
+          </Typography>
+          <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, mt: 0.5 }}>
+            <Chip size="small" label={`👥 ${members.length} ${members.length === 1 ? "person" : "people"}`} />
+            {planCount > 0 && (
+              <Chip size="small" label={`📋 ${planCount} ${planCount === 1 ? "plan" : "plans"}`} />
+            )}
+            {summaryTotalCents > 0 && (
+              <Chip size="small" label={`💰 ${fmtMoney(summaryTotalCents)} total`} />
+            )}
+            {myBalanceLabel && (
+              <Chip
+                size="small"
+                color={myBalance && myBalance.net_cents > 0 ? "success" : "warning"}
+                label={myBalanceLabel}
+              />
+            )}
+            {pendingInvites.length > 0 && (
+              <Chip size="small" variant="outlined" label={`⏳ ${pendingInvites.length} invited`} />
+            )}
+          </Stack>
+        </Paper>
 
         <MembersSection
           tripId={id}
