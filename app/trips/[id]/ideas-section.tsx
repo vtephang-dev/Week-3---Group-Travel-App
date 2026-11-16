@@ -82,8 +82,20 @@ export default function IdeasSection({
   }
 
   async function toggleDecided(id: string, decided: boolean) {
+    setError(null);
     const supabase = createClient();
-    await supabase.from("ideas").update({ decided: !decided }).eq("id", id);
+    const { error } = await supabase.from("ideas").update({ decided: !decided }).eq("id", id);
+    if (error) return setError(error.message);
+    router.refresh();
+  }
+
+  async function moveToPlan(idea: Idea) {
+    setError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("itinerary_items")
+      .insert({ trip_id: tripId, title: idea.title });
+    if (error) return setError(error.message);
     router.refresh();
   }
 
@@ -93,85 +105,122 @@ export default function IdeasSection({
     router.refresh();
   }
 
+  function renderIdea(idea: Idea) {
+    const canManage = idea.created_by === currentUserId || isOwner;
+    return (
+      <Box key={idea.id}>
+        {editingId === idea.id ? (
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <TextField
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              size="small"
+              fullWidth
+            />
+            <Button size="small" variant="contained" onClick={() => saveEdit(idea.id)}>
+              Save
+            </Button>
+            <Button size="small" color="inherit" onClick={() => setEditingId(null)}>
+              Cancel
+            </Button>
+          </Stack>
+        ) : (
+          <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Box sx={{ flexGrow: 1, minWidth: 120 }}>
+              <Typography>{idea.title}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                added by {idea.who}
+              </Typography>
+            </Box>
+            {isOwner && (
+              <Button size="small" onClick={() => toggleDecided(idea.id, idea.decided)}>
+                {idea.decided ? "Undo decide" : "Decide"}
+              </Button>
+            )}
+            {isOwner && idea.decided && (
+              <Button size="small" variant="outlined" onClick={() => moveToPlan(idea)}>
+                Move to plan
+              </Button>
+            )}
+            {canManage && (
+              <>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setEditingId(idea.id);
+                    setEditTitle(idea.title);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button size="small" color="error" onClick={() => remove(idea.id)}>
+                  Delete
+                </Button>
+              </>
+            )}
+          </Stack>
+        )}
+
+        <IdeaComments
+          tripId={tripId}
+          ideaId={idea.id}
+          comments={idea.comments}
+          currentUserId={currentUserId}
+        />
+
+        <Divider sx={{ mt: 1 }} />
+      </Box>
+    );
+  }
+
+  const decidedIdeas = ideas.filter((i) => i.decided);
+  const openIdeas = ideas.filter((i) => !i.decided);
+
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
       <Typography variant="h6" sx={{ mb: 2 }}>
         Ideas board
       </Typography>
 
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       {ideas.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           No ideas yet. Suggest one for the group below.
         </Typography>
       ) : (
-        <Stack spacing={1} sx={{ mb: 2 }}>
-          {ideas.map((idea) => {
-            const canManage = idea.created_by === currentUserId || isOwner;
-            return (
-            <Box key={idea.id}>
-              {editingId === idea.id ? (
-                <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                  <TextField
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    size="small"
-                    fullWidth
-                  />
-                  <Button size="small" variant="contained" onClick={() => saveEdit(idea.id)}>
-                    Save
-                  </Button>
-                  <Button size="small" color="inherit" onClick={() => setEditingId(null)}>
-                    Cancel
-                  </Button>
-                </Stack>
-              ) : (
-                <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
-                  <Box sx={{ flexGrow: 1 }}>
-                    <Typography>{idea.title}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      added by {idea.who}
-                    </Typography>
-                  </Box>
-                  {idea.decided && <Chip label="Decided" color="success" size="small" />}
-                  {canManage && (
-                    <>
-                      <Button size="small" onClick={() => toggleDecided(idea.id, idea.decided)}>
-                        {idea.decided ? "Undo" : "Decide"}
-                      </Button>
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          setEditingId(idea.id);
-                          setEditTitle(idea.title);
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button size="small" color="error" onClick={() => remove(idea.id)}>
-                        Delete
-                      </Button>
-                    </>
-                  )}
-                </Stack>
-              )}
-
-              <IdeaComments
-                tripId={tripId}
-                ideaId={idea.id}
-                comments={idea.comments}
-                currentUserId={currentUserId}
-              />
-
-              <Divider sx={{ mt: 1 }} />
+        <Box sx={{ mb: 2 }}>
+          {decidedIdeas.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 1 }}>
+                <Chip label="✓ Decided by the group" color="success" size="small" />
+                <Typography variant="caption" color="text.secondary">
+                  {decidedIdeas.length}
+                </Typography>
+              </Stack>
+              <Stack spacing={1}>{decidedIdeas.map(renderIdea)}</Stack>
             </Box>
-            );
-          })}
-        </Stack>
+          )}
+
+          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+            Open ideas
+          </Typography>
+          {openIdeas.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No open ideas — everything has been decided.
+            </Typography>
+          ) : (
+            <Stack spacing={1}>{openIdeas.map(renderIdea)}</Stack>
+          )}
+        </Box>
       )}
 
       <Box component="form" onSubmit={addIdea}>
         <Stack spacing={2}>
-          {error && <Alert severity="error">{error}</Alert>}
           <TextField
             label="Suggest an idea"
             value={title}
