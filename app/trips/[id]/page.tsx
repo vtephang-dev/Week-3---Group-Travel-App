@@ -49,7 +49,7 @@ export default async function TripPage({
   const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: ideaComments }, { data: arrivals }, { data: expenses }, { data: splits }] =
     await Promise.all([
       supabase.from("trip_members").select("user_id").eq("trip_id", id),
-      supabase.from("itinerary_items").select("id, title, details, day").eq("trip_id", id).order("day", { ascending: true }),
+      supabase.from("itinerary_items").select("id, title, details, day, start_time, place, cost_cents, currency, version, created_by").eq("trip_id", id).order("day", { ascending: true, nullsFirst: false }).order("start_time", { ascending: true, nullsFirst: true }),
       supabase.from("ideas").select("id, title, notes, decided").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("arrivals").select("id, arrive_at, location, notes, user_id, flight_number").eq("trip_id", id).order("arrive_at", { ascending: true }),
@@ -96,6 +96,20 @@ export default async function TripPage({
       expires_at: inv.expires_at,
       expired: new Date(inv.expires_at).getTime() < now,
     }));
+
+  const itineraryRows = (itinerary ?? []).map((it) => ({
+    id: it.id,
+    title: it.title,
+    details: it.details,
+    day: it.day,
+    start_time: it.start_time,
+    place: it.place,
+    cost_cents: it.cost_cents,
+    currency: it.currency,
+    version: it.version ?? 0,
+    created_by: it.created_by,
+    who: nameOf(it.created_by),
+  }));
 
   const ideasWithComments = (ideas ?? []).map((idea) => ({
     ...idea,
@@ -198,7 +212,13 @@ export default async function TripPage({
           currentUserId={user.id}
           pendingInvites={pendingInvites}
         />
-        <ItinerarySection tripId={id} items={itinerary ?? []} />
+        <ItinerarySection
+          tripId={id}
+          items={itineraryRows}
+          currentUserId={user.id}
+          isOwner={trip.owner_id === user.id}
+          tripCurrency={trip.main_currency ?? "USD"}
+        />
         <IdeasSection tripId={id} ideas={ideasWithComments} currentUserId={user.id} />
         <ExpensesSection
           tripId={id}
