@@ -1,0 +1,26 @@
+name: CI
+
+# Runs the money test set (and lint) on every pull request and push to main,
+# so the split math is checked automatically before anything merges.
+# (Ticket F.4 — set up CI and the money test set.)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Money test set (split engine)
+        run: npm test
