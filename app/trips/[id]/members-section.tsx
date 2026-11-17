@@ -101,6 +101,7 @@ export default function MembersSection({
 
   function expiresLabel(iso: string, expired: boolean) {
     if (expired) return "expired";
+    // eslint-disable-next-line react-hooks/purity
     const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
     if (days <= 1) return "expires soon";
     return `expires in ${days} days`;

@@ -100,6 +100,9 @@ export default async function TripPage({
   if (user.email) memberEmails.add(user.email.toLowerCase());
 
   // "Who hasn't joined yet" = invited emails that aren't members yet.
+  // (This is a Server Component rendered once per request, so reading the clock
+  // here is intentional and deterministic for the request.)
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const pendingInvites = (invites ?? [])
     .filter((inv) => !memberEmails.has(inv.email.toLowerCase()))
