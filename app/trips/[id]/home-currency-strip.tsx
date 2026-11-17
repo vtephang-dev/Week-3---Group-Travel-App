@@ -1,59 +1,28 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { createClient } from "@/utils/supabase/client";
-import { getRate, convertCents, type FxRate } from "@/utils/fx";
+import { convertCents, type FxRate } from "@/utils/fx";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import Stack from "@mui/material/Stack";
 
 // Shows the trip's money in the viewer's chosen home currency — a rough,
 // read-only side-by-side. Never changes what anyone owes (ticket 3.2.3).
+// The rate is fetched on the server (see page.tsx) to avoid browser CORS limits;
+// this component only displays it.
 export default function HomeCurrencyStrip({
   tripCurrency,
   homeCurrency,
   summaryTotalCents,
   myBalanceCents,
+  fx,
 }: {
   tripCurrency: string;
   homeCurrency: string;
   summaryTotalCents: number;
   myBalanceCents: number;
+  fx: FxRate | null;
 }) {
-  const [fx, setFx] = useState<FxRate | null>(null);
-  const [state, setState] = useState<"loading" | "ok" | "failed">("loading");
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const supabase = createClient();
-      const r = await getRate(supabase, tripCurrency, homeCurrency);
-      if (!active) return;
-      if (r) {
-        setFx(r);
-        setState("ok");
-      } else {
-        setState("failed");
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [tripCurrency, homeCurrency]);
-
   const fmt = (cents: number) => `${homeCurrency} ${(cents / 100).toFixed(2)}`;
 
-  if (state === "loading") {
-    return (
-      <Paper variant="outlined" sx={{ p: 2, bgcolor: "action.hover" }}>
-        <Typography variant="body2" color="text.secondary">
-          Converting to your home currency ({homeCurrency})…
-        </Typography>
-      </Paper>
-    );
-  }
-
-  if (state === "failed" || !fx) {
+  if (!fx) {
     return (
       <Paper variant="outlined" sx={{ p: 2, bgcolor: "action.hover" }}>
         <Typography variant="body2" color="text.secondary">

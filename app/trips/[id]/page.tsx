@@ -14,6 +14,7 @@ import ArrivalsSection from "./arrivals-section";
 import ExpensesSection from "./expenses-section";
 import MembersSection from "./members-section";
 import HomeCurrencyStrip from "./home-currency-strip";
+import { getRate, type FxRate } from "@/utils/fx";
 
 function formatDateRange(start: string | null, end: string | null) {
   const fmt = (d: string) =>
@@ -260,6 +261,13 @@ export default async function TripPage({
     if (debtors[di].net_cents === 0) di++;
   }
 
+  // Rate for the viewer's home currency (fetched server-side to avoid browser
+  // CORS limits; cached daily in fx_rates). null when not applicable or failed.
+  const homeFx: FxRate | null =
+    homeCurrency && homeCurrency !== tripCurrency
+      ? await getRate(supabase, tripCurrency, homeCurrency)
+      : null;
+
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
   const proto = host.includes("localhost") ? "http" : "https";
@@ -318,6 +326,7 @@ export default async function TripPage({
             homeCurrency={homeCurrency}
             summaryTotalCents={summaryTotalCents}
             myBalanceCents={myBalance?.net_cents ?? 0}
+            fx={homeFx}
           />
         )}
 
