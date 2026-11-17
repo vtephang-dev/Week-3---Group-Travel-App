@@ -13,6 +13,7 @@ import IdeasSection from "./ideas-section";
 import ArrivalsSection from "./arrivals-section";
 import ExpensesSection from "./expenses-section";
 import MembersSection from "./members-section";
+import HomeCurrencyStrip from "./home-currency-strip";
 
 function formatDateRange(start: string | null, end: string | null) {
   const fmt = (d: string) =>
@@ -47,6 +48,13 @@ export default async function TripPage({
     .single();
 
   if (!trip) notFound();
+
+  const { data: myProfile } = await supabase
+    .from("profiles")
+    .select("home_currency")
+    .eq("id", user.id)
+    .maybeSingle();
+  const homeCurrency = myProfile?.home_currency ?? null;
 
   const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: ideaComments }, { data: arrivals }, { data: expenses }, { data: splits }] =
     await Promise.all([
@@ -303,6 +311,15 @@ export default async function TripPage({
             )}
           </Stack>
         </Paper>
+
+        {homeCurrency && homeCurrency !== tripCurrency && (
+          <HomeCurrencyStrip
+            tripCurrency={tripCurrency}
+            homeCurrency={homeCurrency}
+            summaryTotalCents={summaryTotalCents}
+            myBalanceCents={myBalance?.net_cents ?? 0}
+          />
+        )}
 
         <MembersSection
           tripId={id}
