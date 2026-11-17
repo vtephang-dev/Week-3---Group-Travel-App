@@ -64,7 +64,7 @@ export default async function TripPage({
       supabase.from("ideas").select("id, title, notes, decided, created_by, created_at, link, cost_cents").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("idea_comments").select("id, idea_id, body, author_id, created_at").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("arrivals").select("id, arrive_at, location, notes, user_id, flight_number").eq("trip_id", id).order("arrive_at", { ascending: true }),
-      supabase.from("expenses").select("id, description, amount_cents, paid_by, currency, created_at, deleted_at, split_mode").eq("trip_id", id).order("created_at", { ascending: true }),
+      supabase.from("expenses").select("id, description, amount_cents, paid_by, currency, created_at, deleted_at, split_mode, entered_amount_cents, entered_currency, fx_rate_to_trip, fx_rate_date").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
 
@@ -176,6 +176,10 @@ export default async function TripPage({
       payer_name: nameOf(e.paid_by),
       shared_with: mySplits.map((s) => nameOf(s.user_id)),
       breakdown: mySplits.map((s) => ({ name: nameOf(s.user_id), share_cents: s.share_cents })),
+      entered_amount_cents: e.entered_amount_cents ?? null,
+      entered_currency: e.entered_currency ?? null,
+      fx_rate_to_trip: e.fx_rate_to_trip ?? null,
+      fx_rate_date: e.fx_rate_date ?? null,
     };
   });
 
