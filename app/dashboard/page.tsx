@@ -11,6 +11,7 @@ import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import LogoutButton from "./logout-button";
 import NewTripForm from "./new-trip-form";
+import HomeCurrencyForm from "./home-currency-form";
 
 type Trip = {
   id: string;
@@ -51,6 +52,12 @@ export default async function DashboardPage() {
 
   const tripList = (trips ?? []) as Trip[];
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("home_currency")
+    .eq("id", user.id)
+    .maybeSingle();
+
   return (
     <Container maxWidth="sm">
       <Box sx={{ py: 6, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -69,6 +76,8 @@ export default async function DashboardPage() {
         </Typography>
 
         <NewTripForm />
+
+        <HomeCurrencyForm userId={user.id} current={profile?.home_currency ?? null} />
 
         <Paper variant="outlined" sx={{ p: 3 }}>
           <Typography variant="h6" sx={{ mb: 1 }}>
