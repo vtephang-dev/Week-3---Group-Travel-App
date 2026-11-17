@@ -21,6 +21,9 @@ import MenuItem from "@mui/material/MenuItem";
 import RadioGroup from "@mui/material/RadioGroup";
 import Radio from "@mui/material/Radio";
 import Chip from "@mui/material/Chip";
+import { computeItemizedShares, type SplitLine } from "@/utils/split";
+
+type ItemLine = { label: string; amount: string; userIds: string[] };
 
 export type Member = { user_id: string; name: string };
 
@@ -115,9 +118,45 @@ export default function ExpensesSection({
   const [shared, setShared] = useState<Set<string>>(
     new Set(members.map((m) => m.user_id)),
   );
-  const [splitMode, setSplitMode] = useState<"even" | "custom">("even");
+  const [splitMode, setSplitMode] = useState<"even" | "custom" | "itemized">("even");
   // Custom per-person amounts (dollar strings), keyed by user id.
   const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({});
+  // Itemized split: line items + tax/service/tip.
+  const [itemLines, setItemLines] = useState<ItemLine[]>([
+    { label: "", amount: "", userIds: [] },
+  ]);
+  const [taxStr, setTaxStr] = useState("");
+  const [serviceStr, setServiceStr] = useState("");
+  const [tipStr, setTipStr] = useState("");
+
+  const toCents = (s: string) => {
+    const v = parseFloat(s);
+    return isNaN(v) ? 0 : Math.round(v * 100);
+  };
+
+  // Live preview of the itemized split (also used on save).
+  const itemizedLines: SplitLine[] = itemLines
+    .filter((l) => toCents(l.amount) > 0 && l.userIds.length > 0)
+    .map((l) => ({ amount_cents: toCents(l.amount), user_ids: l.userIds }));
+  const itemizedResult = computeItemizedShares(
+    itemizedLines,
+    toCents(taxStr),
+    toCents(serviceStr),
+    toCents(tipStr),
+  );
+
+  function updateLine(i: number, patch: Partial<ItemLine>) {
+    setItemLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+  function toggleLineUser(i: number, uid: string) {
+    setItemLines((prev) =>
+      prev.map((l, idx) => {
+        if (idx !== i) return l;
+        const has = l.userIds.includes(uid);
+        return { ...l, userIds: has ? l.userIds.filter((x) => x !== uid) : [...l.userIds, uid] };
+      }),
+    );
+  }
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -149,6 +188,71 @@ export default function ExpensesSection({
   async function addExpense(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (splitMode === "itemized") {
+      if (itemizedLines.length === 0) {
+        return setError("Add at least one item with an amount and at least one person.");
+      }
+      setLoading(true);
+      const supabase = createClient();
+      const { data: exp, error: expErr } = await supabase
+        .from("expenses")
+        .insert({
+          trip_id: tripId,
+          description,
+          amount_cents: itemizedResult.total_cents,
+          currency: tripCurrency,
+          split_mode: "itemized",
+          subtotal_cents: itemizedResult.subtotal_cents,
+          tax_cents: toCents(taxStr),
+          service_cents: toCents(serviceStr),
+          tip_cents: toCents(tipStr),
+        })
+        .select("id")
+        .single();
+      if (expErr || !exp) {
+        setLoading(false);
+        return setError(expErr?.message ?? "Could not save expense.");
+      }
+
+      // Save each line and who had it.
+      const validLines = itemLines.filter((l) => toCents(l.amount) > 0 && l.userIds.length > 0);
+      for (const line of validLines) {
+        const { data: ln, error: lnErr } = await supabase
+          .from("expense_lines")
+          .insert({ expense_id: exp.id, trip_id: tripId, label: line.label || "Item", amount_cents: toCents(line.amount) })
+          .select("id")
+          .single();
+        if (lnErr || !ln) {
+          setLoading(false);
+          return setError(lnErr?.message ?? "Could not save a line item.");
+        }
+        const shareRows = line.userIds.map((uid) => ({ line_id: ln.id, user_id: uid, trip_id: tripId }));
+        const { error: shErr } = await supabase.from("line_shares").insert(shareRows);
+        if (shErr) {
+          setLoading(false);
+          return setError(shErr.message);
+        }
+      }
+
+      // The per-person totals go into expense_splits (what balances read).
+      const splitRows = Object.entries(itemizedResult.shares)
+        .filter(([, c]) => c > 0)
+        .map(([uid, c]) => ({ expense_id: exp.id, user_id: uid, trip_id: tripId, share_cents: c }));
+      const { error: splitErr } = await supabase.from("expense_splits").insert(splitRows);
+      setLoading(false);
+      if (splitErr) return setError(splitErr.message);
+
+      setDescription("");
+      setItemLines([{ label: "", amount: "", userIds: [] }]);
+      setTaxStr("");
+      setServiceStr("");
+      setTipStr("");
+      setSplitMode("even");
+      router.refresh();
+      return;
+    }
+
     const dollars = parseFloat(amount);
     if (isNaN(dollars) || dollars < 0) return setError("Enter a valid amount.");
     const totalCents = Math.round(dollars * 100);
@@ -272,7 +376,9 @@ export default function ExpensesSection({
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
                             {e.split_mode === "custom"
                               ? "Split by the custom amount set for each person."
-                              : `Split evenly among ${n} ${n === 1 ? "person" : "people"} — any leftover cents go to the first person so it adds up exactly.`}
+                              : e.split_mode === "itemized"
+                                ? "Split by item — each person's items, plus their share of tax, service and tip in proportion to what they had."
+                                : `Split evenly among ${n} ${n === 1 ? "person" : "people"} — any leftover cents go to the first person so it adds up exactly.`}
                           </Typography>
                           <Stack spacing={0.25}>
                             {e.breakdown.map((b, i) => (
@@ -428,15 +534,17 @@ export default function ExpensesSection({
             size="small"
             placeholder="Dinner at the ramen place"
           />
-          <TextField
-            label="Amount (USD)"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            required
-            size="small"
-            placeholder="48.50"
-            inputMode="decimal"
-          />
+          {splitMode !== "itemized" && (
+            <TextField
+              label={`Amount (${tripCurrency})`}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+              size="small"
+              placeholder="48.50"
+              inputMode="decimal"
+            />
+          )}
           <Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
               How to split:
@@ -444,13 +552,14 @@ export default function ExpensesSection({
             <RadioGroup
               row
               value={splitMode}
-              onChange={(e) => setSplitMode(e.target.value as "even" | "custom")}
+              onChange={(e) => setSplitMode(e.target.value as "even" | "custom" | "itemized")}
             >
               <FormControlLabel value="even" control={<Radio size="small" />} label="Evenly" />
               <FormControlLabel value="custom" control={<Radio size="small" />} label="Custom amounts" />
+              <FormControlLabel value="itemized" control={<Radio size="small" />} label="By item" />
             </RadioGroup>
 
-            {splitMode === "even" ? (
+            {splitMode === "even" && (
               <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
                   Split with:
@@ -471,7 +580,8 @@ export default function ExpensesSection({
                   ))}
                 </FormGroup>
               </>
-            ) : (
+            )}
+            {splitMode === "custom" && (
               <Stack spacing={1}>
                 {members.map((m) => (
                   <Stack
@@ -505,6 +615,123 @@ export default function ExpensesSection({
                       }`
                     : ""}
                 </Typography>
+              </Stack>
+            )}
+            {splitMode === "itemized" && (
+              <Stack spacing={1.5}>
+                <Typography variant="body2" color="text.secondary">
+                  Add each item and tick who had it.
+                </Typography>
+                {itemLines.map((line, i) => (
+                  <Box
+                    key={i}
+                    sx={{ p: 1, border: "1px solid", borderColor: "divider", borderRadius: 1 }}
+                  >
+                    <Stack direction="row" spacing={1} sx={{ mb: 0.5 }}>
+                      <TextField
+                        label="Item"
+                        value={line.label}
+                        onChange={(e) => updateLine(i, { label: e.target.value })}
+                        size="small"
+                        fullWidth
+                        placeholder="Pizza"
+                      />
+                      <TextField
+                        label={tripCurrency}
+                        value={line.amount}
+                        onChange={(e) => updateLine(i, { amount: e.target.value })}
+                        size="small"
+                        sx={{ width: 100 }}
+                        placeholder="12.00"
+                        inputMode="decimal"
+                      />
+                      {itemLines.length > 1 && (
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() =>
+                            setItemLines((prev) => prev.filter((_, idx) => idx !== i))
+                          }
+                          sx={{ minWidth: 0 }}
+                        >
+                          ✕
+                        </Button>
+                      )}
+                    </Stack>
+                    <Stack direction="row" sx={{ flexWrap: "wrap" }}>
+                      {members.map((m) => (
+                        <FormControlLabel
+                          key={m.user_id}
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={line.userIds.includes(m.user_id)}
+                              onChange={() => toggleLineUser(i, m.user_id)}
+                            />
+                          }
+                          label={m.user_id === currentUserId ? `${m.name} (you)` : m.name}
+                        />
+                      ))}
+                    </Stack>
+                  </Box>
+                ))}
+                <Button
+                  size="small"
+                  onClick={() =>
+                    setItemLines((prev) => [...prev, { label: "", amount: "", userIds: [] }])
+                  }
+                  sx={{ alignSelf: "flex-start" }}
+                >
+                  + Add item
+                </Button>
+
+                <Stack direction="row" spacing={1}>
+                  <TextField
+                    label={`Tax (${tripCurrency})`}
+                    value={taxStr}
+                    onChange={(e) => setTaxStr(e.target.value)}
+                    size="small"
+                    placeholder="0.00"
+                    inputMode="decimal"
+                  />
+                  <TextField
+                    label="Service"
+                    value={serviceStr}
+                    onChange={(e) => setServiceStr(e.target.value)}
+                    size="small"
+                    placeholder="0.00"
+                    inputMode="decimal"
+                  />
+                  <TextField
+                    label="Tip"
+                    value={tipStr}
+                    onChange={(e) => setTipStr(e.target.value)}
+                    size="small"
+                    placeholder="0.00"
+                    inputMode="decimal"
+                  />
+                </Stack>
+
+                <Box sx={{ p: 1, bgcolor: "action.hover", borderRadius: 1 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                    Each person pays (total {amountWithCurrency(itemizedResult.total_cents, tripCurrency)}):
+                  </Typography>
+                  {members.map((m) => {
+                    const c = itemizedResult.shares[m.user_id] ?? 0;
+                    if (c === 0) return null;
+                    return (
+                      <Typography key={m.user_id} variant="body2">
+                        {m.user_id === currentUserId ? `${m.name} (you)` : m.name}:{" "}
+                        {amountWithCurrency(c, tripCurrency)}
+                      </Typography>
+                    );
+                  })}
+                  {itemizedResult.total_cents === 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      Add items and tick who had them to see the split.
+                    </Typography>
+                  )}
+                </Box>
               </Stack>
             )}
           </Box>
