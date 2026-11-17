@@ -36,6 +36,10 @@ export type Expense = {
   shared_with: string[]; // names
   split_mode: string;
   breakdown: { name: string; share_cents: number }[];
+  entered_amount_cents?: number | null;
+  entered_currency?: string | null;
+  fx_rate_to_trip?: number | null;
+  fx_rate_date?: string | null;
 };
 
 export type RemovedExpense = {
@@ -50,12 +54,41 @@ export type RemovedExpense = {
 export type Balance = { user_id: string; name: string; net_cents: number };
 export type Settlement = { from: string; to: string; amount_cents: number };
 
+const CURRENCIES = [
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "CAD",
+  "AUD",
+  "CHF",
+  "MXN",
+];
+
 function money(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
 function amountWithCurrency(cents: number, currency: string) {
   return `${currency} ${(cents / 100).toFixed(2)}`;
+}
+
+// Shows what was actually paid, plus the trip-currency value it converted to
+// when the payer entered a foreign currency.
+function expenseAmount(e: {
+  amount_cents: number;
+  currency: string;
+  entered_amount_cents?: number | null;
+  entered_currency?: string | null;
+}) {
+  if (
+    e.entered_currency &&
+    e.entered_amount_cents != null &&
+    e.entered_currency !== e.currency
+  ) {
+    return `${amountWithCurrency(e.entered_amount_cents, e.entered_currency)} (≈ ${amountWithCurrency(e.amount_cents, e.currency)})`;
+  }
+  return amountWithCurrency(e.amount_cents, e.currency);
 }
 
 function addedOn(iso: string) {
@@ -116,6 +149,10 @@ export default function ExpensesSection({
     new Set(members.map((m) => m.user_id)),
   );
   const [splitMode, setSplitMode] = useState<"even" | "custom" | "itemized">("even");
+  // Currency the payer entered this expense in. Foreign currencies are supported
+  // for the "even" split only (the common receipt case); custom / by-item entry
+  // stays in the trip currency for now.
+  const [expenseCurrency, setExpenseCurrency] = useState(tripCurrency);
   // Custom per-person amounts (dollar strings), keyed by user id.
   const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({});
   // Itemized split: line items + tax/service/tip.
@@ -252,7 +289,41 @@ export default function ExpensesSection({
 
     const dollars = parseFloat(amount);
     if (isNaN(dollars) || dollars < 0) return setError("Enter a valid amount.");
-    const totalCents = Math.round(dollars * 100);
+    const enteredCents = Math.round(dollars * 100);
+
+    // If the payer entered a foreign currency (even split only), convert the
+    // total to the trip currency using a rate locked right now, and remember
+    // what was actually paid so the number stays explainable later.
+    let totalCents = enteredCents;
+    let fxFields: {
+      entered_amount_cents: number;
+      entered_currency: string;
+      fx_rate_to_trip: number;
+      fx_rate_date: string;
+    } | null = null;
+
+    if (splitMode === "even" && expenseCurrency !== tripCurrency) {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/fx?from=${encodeURIComponent(expenseCurrency)}&to=${encodeURIComponent(tripCurrency)}`,
+        );
+        if (!res.ok) throw new Error("rate");
+        const fx = (await res.json()) as { rate: number; rateDate: string };
+        totalCents = Math.round(enteredCents * fx.rate);
+        fxFields = {
+          entered_amount_cents: enteredCents,
+          entered_currency: expenseCurrency,
+          fx_rate_to_trip: fx.rate,
+          fx_rate_date: fx.rateDate,
+        };
+      } catch {
+        setLoading(false);
+        return setError(
+          `Couldn't get today's ${expenseCurrency}→${tripCurrency} rate. Try again, or enter the amount in ${tripCurrency}.`,
+        );
+      }
+    }
 
     // Build the per-person shares depending on the chosen split method.
     let rows: { user_id: string; share_cents: number }[];
@@ -272,7 +343,7 @@ export default function ExpensesSection({
         return { user_id: uid, share_cents: share };
       });
     } else {
-      // Custom amounts: each person's exact share must add up to the total.
+      // Custom amounts (trip currency): each person's exact share must add up.
       if (customSumCents !== totalCents) {
         return setError(
           `Custom amounts add up to ${money(customSumCents)}, but the total is ${money(
@@ -300,6 +371,7 @@ export default function ExpensesSection({
         amount_cents: totalCents,
         split_mode: splitMode,
         currency: tripCurrency,
+        ...(fxFields ?? {}),
       })
       .select("id")
       .single();
@@ -322,6 +394,7 @@ export default function ExpensesSection({
 
     setDescription("");
     setAmount("");
+    setExpenseCurrency(tripCurrency);
     setShared(new Set(members.map((m) => m.user_id)));
     setCustomAmounts({});
     setSplitMode("even");
@@ -352,7 +425,7 @@ export default function ExpensesSection({
                   <Stack direction="row" sx={{ alignItems: "flex-start", gap: 1 }}>
                     <Box sx={{ flexGrow: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {e.description} — {amountWithCurrency(e.amount_cents, e.currency)}
+                        {e.description} — {expenseAmount(e)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
                         {(e.shared_with.length > 0
@@ -509,7 +582,7 @@ export default function ExpensesSection({
               <Stack key={e.id} direction="row" sx={{ alignItems: "center", gap: 1 }}>
                 <Chip label="Removed" size="small" variant="outlined" />
                 <Typography variant="body2" color="text.secondary">
-                  {e.description} — {amountWithCurrency(e.amount_cents, e.currency)} · paid by{" "}
+                  {e.description} — {expenseAmount(e)} · paid by{" "}
                   {e.payer_name} · removed {addedOn(e.removed_at)}
                 </Typography>
               </Stack>
@@ -532,15 +605,43 @@ export default function ExpensesSection({
             placeholder="Dinner at the ramen place"
           />
           {splitMode !== "itemized" && (
-            <TextField
-              label={`Amount (${tripCurrency})`}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-              size="small"
-              placeholder="48.50"
-              inputMode="decimal"
-            />
+            <>
+              <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
+                <TextField
+                  label={`Amount (${splitMode === "even" ? expenseCurrency : tripCurrency})`}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  required
+                  size="small"
+                  placeholder="48.50"
+                  inputMode="decimal"
+                  fullWidth
+                />
+                {splitMode === "even" && (
+                  <TextField
+                    label="Currency"
+                    select
+                    size="small"
+                    value={expenseCurrency}
+                    onChange={(e) => setExpenseCurrency(e.target.value)}
+                    sx={{ minWidth: 110 }}
+                  >
+                    {Array.from(new Set([tripCurrency, ...CURRENCIES])).map((c) => (
+                      <MenuItem key={c} value={c}>
+                        {c}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              </Stack>
+              {splitMode === "even" && expenseCurrency !== tripCurrency && (
+                <Typography variant="caption" color="text.secondary">
+                  Paid in {expenseCurrency}. We&apos;ll convert to {tripCurrency} at
+                  today&apos;s rate and split that — everyone still settles up in{" "}
+                  {tripCurrency}.
+                </Typography>
+              )}
+            </>
           )}
           <Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
@@ -549,7 +650,12 @@ export default function ExpensesSection({
             <RadioGroup
               row
               value={splitMode}
-              onChange={(e) => setSplitMode(e.target.value as "even" | "custom" | "itemized")}
+              onChange={(e) => {
+                const mode = e.target.value as "even" | "custom" | "itemized";
+                setSplitMode(mode);
+                // Foreign currency is only for even splits; reset otherwise.
+                if (mode !== "even") setExpenseCurrency(tripCurrency);
+              }}
             >
               <FormControlLabel value="even" control={<Radio size="small" />} label="Evenly" />
               <FormControlLabel value="custom" control={<Radio size="small" />} label="Custom amounts" />
