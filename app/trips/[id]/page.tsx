@@ -15,6 +15,7 @@ import ExpensesSection from "./expenses-section";
 import MembersSection from "./members-section";
 import HomeCurrencyStrip from "./home-currency-strip";
 import TripTabs from "./trip-tabs";
+import DeleteTripButton from "./delete-trip-button";
 import { getRate, type FxRate } from "@/utils/fx";
 
 function formatDateRange(start: string | null, end: string | null) {
@@ -399,6 +400,10 @@ export default async function TripPage({
             },
           ]}
         />
+
+        {trip.owner_id === user.id && (
+          <DeleteTripButton tripId={id} tripName={trip.name} />
+        )}
       </Box>
     </Container>
   );
