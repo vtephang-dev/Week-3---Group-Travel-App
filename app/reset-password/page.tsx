@@ -103,6 +103,12 @@ export default function ResetPasswordPage() {
                 onChange={(e) => setConfirm(e.target.value)}
                 required
                 fullWidth
+                error={confirm.length > 0 && password !== confirm}
+                helperText={
+                  confirm.length > 0 && password !== confirm
+                    ? "The two passwords don't match."
+                    : " "
+                }
               />
               <Button type="submit" variant="contained" size="large" disabled={loading}>
                 {loading ? "Saving…" : "Set new password"}
