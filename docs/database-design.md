@@ -14,9 +14,12 @@ trips they belong to.
 - Ideas the group is still deciding on, with an optional link and rough cost.
 - Comments on each idea.
 - Each person's arrival details (time, place, flight/train number).
+- Which plan items each person has opted in or out of.
 - Shared expenses (who paid, amount, currency), kept even after they are removed.
+- The individual line items of an itemized expense, and who shared each one.
 - How each expense is split between people.
 - Payments people make to each other to settle up.
+- Each person's chosen home currency, and a daily cache of exchange rates.
 
 ## Tables
 
@@ -27,6 +30,7 @@ trips they belong to.
 | --- | --- | --- | --- |
 | id | uuid | Yes | The user's id (same as their Supabase Auth id). |
 | display_name | text | No | The name shown in the app (their email by default). |
+| home_currency | text | No | The currency this person likes to see amounts in (optional). |
 | created_at | timestamp | Yes | When the profile was created. |
 
 **Who can see it?** You can see your own profile, and the profiles of people who share a trip with you.
@@ -100,6 +104,19 @@ trips they belong to.
 **Who can see it?** Members of the trip.
 **Who can add, change, or delete it?** Any member can add or edit; you can delete your own, and the organizer can delete any.
 
+### Table name: item_optins
+**What it stores:** which people have opted in to each plan (itinerary) item. One row = one person opted into one item.
+
+| Column | Type | Required? | What it means |
+| --- | --- | --- | --- |
+| item_id | uuid | Yes | The itinerary item they opted into. |
+| user_id | uuid | Yes | The person opting in. |
+| trip_id | uuid | Yes | The trip (for access checks). |
+| created_at | timestamp | Yes | When they opted in. |
+
+**Who can see it?** Members of the trip.
+**Who can add, change, or delete it?** Each person adds or removes their own opt-in.
+
 ### Table name: ideas
 **What it stores:** suggestions the group is still deciding on.
 
@@ -158,10 +175,18 @@ trips they belong to.
 | id | uuid | Yes | Unique id. |
 | trip_id | uuid | Yes | The trip. |
 | description | text | Yes | What the cost was for. |
-| amount_cents | integer | Yes | The total, in whole cents. |
-| currency | text | Yes | Currency code (default USD). |
+| amount_cents | integer | Yes | The total, in whole cents (in the trip currency). |
+| currency | text | Yes | Currency code (default USD) — the trip's settle-up currency. |
 | paid_by | uuid | Yes | Who paid. |
-| split_mode | text | Yes | How it was split (even or custom). |
+| split_mode | text | Yes | How it was split (even, custom, or itemized). |
+| subtotal_cents | integer | No | For itemized splits: the items' total before tax/service/tip. |
+| tax_cents | integer | No | Tax added to an itemized split. |
+| service_cents | integer | No | Service charge added to an itemized split. |
+| tip_cents | integer | No | Tip added to an itemized split. |
+| entered_amount_cents | integer | No | If entered in a foreign currency: the amount actually paid. |
+| entered_currency | text | No | The currency it was actually paid in (if different from the trip's). |
+| fx_rate_to_trip | numeric | No | The exchange rate locked at entry (1 entered_currency = this many trip currency). |
+| fx_rate_date | date | No | The date that locked rate was priced. |
 | deleted_at | timestamp | No | When it was removed, if it was (soft delete). |
 | created_at | timestamp | Yes | When it was added. |
 
@@ -177,6 +202,34 @@ trips they belong to.
 | user_id | uuid | Yes | The person who shares it. |
 | trip_id | uuid | Yes | The trip (for access checks). |
 | share_cents | integer | Yes | That person's share, in whole cents. |
+
+**Who can see it?** Members of the trip.
+**Who can add, change, or delete it?** Any member of the trip.
+
+### Table name: expense_lines
+**What it stores:** the individual line items of an itemized expense (e.g. each dish on a restaurant bill).
+
+| Column | Type | Required? | What it means |
+| --- | --- | --- | --- |
+| id | uuid | Yes | Unique id. |
+| expense_id | uuid | Yes | The expense this line belongs to. |
+| trip_id | uuid | Yes | The trip (for access checks). |
+| label | text | Yes | What the line item was (e.g. "Ramen"). |
+| amount_cents | integer | Yes | The line's cost, in whole cents. |
+| created_at | timestamp | Yes | When it was added. |
+
+**Who can see it?** Members of the trip.
+**Who can add, change, or delete it?** Any member of the trip.
+
+### Table name: line_shares
+**What it stores:** who shared each line item of an itemized expense. One row = one person on one line.
+
+| Column | Type | Required? | What it means |
+| --- | --- | --- | --- |
+| line_id | uuid | Yes | The expense line they shared. |
+| user_id | uuid | Yes | The person who had this item. |
+| trip_id | uuid | Yes | The trip (for access checks). |
+| weight | integer | Yes | Their share weight for this line (default 1 = equal). |
 
 **Who can see it?** Members of the trip.
 **Who can add, change, or delete it?** Any member of the trip.
@@ -199,15 +252,32 @@ trips they belong to.
 **Who can see it?** Members of the trip.
 **Who can add, change, or delete it?** A member can record a payment they made; you can delete one you recorded.
 
+### Table name: fx_rates
+**What it stores:** a daily cache of exchange rates, so the app asks the rate service at most once a day per currency pair.
+
+| Column | Type | Required? | What it means |
+| --- | --- | --- | --- |
+| base | text | Yes | The currency being converted from. |
+| quote | text | Yes | The currency being converted to. |
+| as_of | date | Yes | The day this rate was cached. |
+| rate | numeric | Yes | How many "quote" you get for 1 "base". |
+| rate_date | date | No | The date the rate service actually priced it. |
+
+**Who can see it?** Any signed-in user (shared reference data, not trip-specific).
+**Who can add, change, or delete it?** Any signed-in user can add a freshly-fetched rate to the cache.
+
 ## How the tables connect
 
 - One person has one profile. Each profile belongs to one user.
 - One person can own many trips. Each trip has one owner.
 - One trip has many members, and one person can be in many trips (through trip_members).
 - One trip has many invites, itinerary items, ideas, arrivals, expenses, and settlements. Each of those belongs to one trip.
+- One itinerary item can have many opt-ins, and one person can opt into many items (through item_optins).
 - One idea has many comments. Each comment belongs to one idea.
 - One expense has many splits. Each split belongs to one expense and one person.
+- One itemized expense has many expense_lines. Each line can be shared by many people (through line_shares).
 - Each person has at most one arrival per trip (one row per person).
+- fx_rates stands on its own — a shared rate cache that doesn't belong to any one trip.
 
 ## Access rules (Row-Level Security)
 
