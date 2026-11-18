@@ -72,6 +72,8 @@ export default function ItinerarySection({
   const [cost, setCost] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Which row has a delete/opt-in in flight (so we can disable its buttons).
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   // Inline edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -160,22 +162,29 @@ export default function ItinerarySection({
   }
 
   async function remove(id: string) {
+    if (!window.confirm("Delete this plan item? This can't be undone.")) return;
+    setError(null);
+    setBusyId(id);
     const supabase = createClient();
-    await supabase.from("itinerary_items").delete().eq("id", id);
+    const { error } = await supabase.from("itinerary_items").delete().eq("id", id);
+    setBusyId(null);
+    if (error) return setError(error.message);
     router.refresh();
   }
 
   async function toggleOptin(itemId: string, iAmIn: boolean) {
+    setError(null);
+    setBusyId(itemId);
     const supabase = createClient();
-    if (iAmIn) {
-      await supabase
-        .from("item_optins")
-        .delete()
-        .eq("item_id", itemId)
-        .eq("user_id", currentUserId);
-    } else {
-      await supabase.from("item_optins").insert({ item_id: itemId, trip_id: tripId });
-    }
+    const { error } = iAmIn
+      ? await supabase
+          .from("item_optins")
+          .delete()
+          .eq("item_id", itemId)
+          .eq("user_id", currentUserId)
+      : await supabase.from("item_optins").insert({ item_id: itemId, trip_id: tripId });
+    setBusyId(null);
+    if (error) return setError(error.message);
     router.refresh();
   }
 
@@ -273,7 +282,7 @@ export default function ItinerarySection({
                           size="small"
                           variant={item.i_am_in ? "outlined" : "contained"}
                           onClick={() => toggleOptin(item.id, item.i_am_in)}
-                          sx={{ py: 0, minWidth: 0 }}
+                          disabled={busyId === item.id}
                         >
                           {item.i_am_in ? "Leave" : "I'm in"}
                         </Button>
@@ -288,8 +297,13 @@ export default function ItinerarySection({
                       Edit
                     </Button>
                     {canDelete && (
-                      <Button size="small" color="error" onClick={() => remove(item.id)}>
-                        Delete
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => remove(item.id)}
+                        disabled={busyId === item.id}
+                      >
+                        {busyId === item.id ? "Deleting…" : "Delete"}
                       </Button>
                     )}
                   </Stack>

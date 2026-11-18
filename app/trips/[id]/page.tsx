@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
@@ -8,6 +9,7 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
+import Alert from "@mui/material/Alert";
 import ItinerarySection from "./itinerary-section";
 import IdeasSection from "./ideas-section";
 import ArrivalsSection from "./arrivals-section";
@@ -29,6 +31,17 @@ function formatDateRange(start: string | null, end: string | null) {
   if (start) return `From ${fmt(start)}`;
   if (end) return `Until ${fmt(end)}`;
   return "Dates not set";
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data } = await supabase.from("trips").select("name").eq("id", id).maybeSingle();
+  return { title: data?.name ?? "Trip" };
 }
 
 export default async function TripPage({
@@ -59,7 +72,7 @@ export default async function TripPage({
     .maybeSingle();
   const homeCurrency = myProfile?.home_currency ?? null;
 
-  const [{ data: memberRows }, { data: itinerary }, { data: ideas }, { data: ideaComments }, { data: arrivals }, { data: expenses }, { data: splits }] =
+  const [{ data: memberRows, error: eMembers }, { data: itinerary, error: eItin }, { data: ideas, error: eIdeas }, { data: ideaComments, error: eComments }, { data: arrivals, error: eArrivals }, { data: expenses, error: eExpenses }, { data: splits, error: eSplits }] =
     await Promise.all([
       supabase.from("trip_members").select("user_id").eq("trip_id", id),
       supabase.from("itinerary_items").select("id, title, details, day, start_time, place, cost_cents, currency, version, created_by").eq("trip_id", id).order("day", { ascending: true, nullsFirst: false }).order("start_time", { ascending: true, nullsFirst: true }),
@@ -69,6 +82,10 @@ export default async function TripPage({
       supabase.from("expenses").select("id, description, amount_cents, paid_by, currency, created_at, deleted_at, split_mode, entered_amount_cents, entered_currency, fx_rate_to_trip, fx_rate_date").eq("trip_id", id).order("created_at", { ascending: true }),
       supabase.from("expense_splits").select("expense_id, user_id, share_cents").eq("trip_id", id),
     ]);
+
+  // If any section failed to load, we show a non-blocking banner so the user
+  // knows the screen may be incomplete (rather than reading it as "empty").
+  const loadError = eMembers || eItin || eIdeas || eComments || eArrivals || eExpenses || eSplits;
 
   const { data: invites } = await supabase
     .from("invites")
@@ -325,6 +342,13 @@ export default async function TripPage({
             )}
           </Stack>
         </Paper>
+
+        {loadError && (
+          <Alert severity="error">
+            Some of this trip&apos;s details couldn&apos;t be loaded. Please refresh
+            the page to try again.
+          </Alert>
+        )}
 
         {homeCurrency && homeCurrency !== tripCurrency && (
           <HomeCurrencyStrip

@@ -72,6 +72,8 @@ export default function IdeasSection({
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  // Which idea has an action (decide / move / delete) in flight.
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   async function saveEdit(id: string) {
     const text = editTitle.trim();
@@ -108,25 +110,34 @@ export default function IdeasSection({
 
   async function toggleDecided(id: string, decided: boolean) {
     setError(null);
+    setBusyId(id);
     const supabase = createClient();
     const { error } = await supabase.from("ideas").update({ decided: !decided }).eq("id", id);
+    setBusyId(null);
     if (error) return setError(error.message);
     router.refresh();
   }
 
   async function moveToPlan(idea: Idea) {
     setError(null);
+    setBusyId(idea.id);
     const supabase = createClient();
     const { error } = await supabase
       .from("itinerary_items")
       .insert({ trip_id: tripId, title: idea.title });
+    setBusyId(null);
     if (error) return setError(error.message);
     router.refresh();
   }
 
   async function remove(id: string) {
+    if (!window.confirm("Delete this idea? This can't be undone.")) return;
+    setError(null);
+    setBusyId(id);
     const supabase = createClient();
-    await supabase.from("ideas").delete().eq("id", id);
+    const { error } = await supabase.from("ideas").delete().eq("id", id);
+    setBusyId(null);
+    if (error) return setError(error.message);
     router.refresh();
   }
 
@@ -137,6 +148,7 @@ export default function IdeasSection({
         {editingId === idea.id ? (
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <TextField
+              label="Edit idea"
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
               size="small"
@@ -172,12 +184,21 @@ export default function IdeasSection({
               </Typography>
             </Box>
             {isOwner && (
-              <Button size="small" onClick={() => toggleDecided(idea.id, idea.decided)}>
+              <Button
+                size="small"
+                onClick={() => toggleDecided(idea.id, idea.decided)}
+                disabled={busyId === idea.id}
+              >
                 {idea.decided ? "Undo decide" : "Decide"}
               </Button>
             )}
             {isOwner && idea.decided && (
-              <Button size="small" variant="outlined" onClick={() => moveToPlan(idea)}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => moveToPlan(idea)}
+                disabled={busyId === idea.id}
+              >
                 Move to plan
               </Button>
             )}
@@ -192,8 +213,13 @@ export default function IdeasSection({
                 >
                   Edit
                 </Button>
-                <Button size="small" color="error" onClick={() => remove(idea.id)}>
-                  Delete
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={() => remove(idea.id)}
+                  disabled={busyId === idea.id}
+                >
+                  {busyId === idea.id ? "Deleting…" : "Delete"}
                 </Button>
               </>
             )}
@@ -315,6 +341,7 @@ function IdeaComments({
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const count = comments.length;
 
@@ -350,8 +377,13 @@ function IdeaComments({
   }
 
   async function removeComment(id: string) {
+    if (!window.confirm("Delete this comment? This can't be undone.")) return;
+    setError(null);
+    setRemovingId(id);
     const supabase = createClient();
-    await supabase.from("idea_comments").delete().eq("id", id);
+    const { error } = await supabase.from("idea_comments").delete().eq("id", id);
+    setRemovingId(null);
+    if (error) return setError(error.message);
     router.refresh();
   }
 
@@ -360,7 +392,8 @@ function IdeaComments({
       <Button
         size="small"
         onClick={() => setOpen((v) => !v)}
-        sx={{ textTransform: "none", color: "text.secondary", minWidth: 0, px: 0.5 }}
+        aria-expanded={open}
+        sx={{ textTransform: "none", color: "text.secondary", px: 1 }}
       >
         💬 {count === 1 ? "1 comment" : `${count} comments`} {open ? "▲" : "▼"}
       </Button>
@@ -378,6 +411,7 @@ function IdeaComments({
               {editingId === c.id ? (
                 <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: "center" }}>
                   <TextField
+                    label="Edit comment"
                     value={editBody}
                     onChange={(e) => setEditBody(e.target.value)}
                     size="small"
@@ -400,7 +434,6 @@ function IdeaComments({
                     <>
                       <Button
                         size="small"
-                        sx={{ minWidth: 0 }}
                         onClick={() => {
                           setEditingId(c.id);
                           setEditBody(c.body);
@@ -411,10 +444,10 @@ function IdeaComments({
                       <Button
                         size="small"
                         color="error"
-                        sx={{ minWidth: 0 }}
                         onClick={() => removeComment(c.id)}
+                        disabled={removingId === c.id}
                       >
-                        Delete
+                        {removingId === c.id ? "Deleting…" : "Delete"}
                       </Button>
                     </>
                   )}

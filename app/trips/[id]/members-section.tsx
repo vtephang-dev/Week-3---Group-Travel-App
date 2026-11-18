@@ -42,6 +42,7 @@ export default function MembersSection({
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   async function removeMember(userId: string, name: string) {
     if (
@@ -67,6 +68,7 @@ export default function MembersSection({
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+      setError("Couldn't copy automatically — select the link in the box and copy it manually.");
     }
   }
 
@@ -94,8 +96,12 @@ export default function MembersSection({
   }
 
   async function cancelInvite(id: string) {
+    setError(null);
+    setCancelingId(id);
     const supabase = createClient();
-    await supabase.from("invites").delete().eq("id", id);
+    const { error } = await supabase.from("invites").delete().eq("id", id);
+    setCancelingId(null);
+    if (error) return setError(error.message);
     router.refresh();
   }
 
@@ -124,6 +130,13 @@ export default function MembersSection({
                 ? () => removeMember(m.user_id, m.name)
                 : undefined
             }
+            deleteIcon={
+              isOwner && m.user_id !== currentUserId ? (
+                <Box component="span" aria-label={`Remove ${m.name}`} sx={{ px: 0.5, cursor: "pointer" }}>
+                  ✕
+                </Box>
+              ) : undefined
+            }
           />
         ))}
       </Stack>
@@ -148,6 +161,7 @@ export default function MembersSection({
         <Stack spacing={1}>
           <Stack direction="row" spacing={1}>
             <TextField
+              label="Email address"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -183,8 +197,13 @@ export default function MembersSection({
                   color={inv.expired ? "default" : "warning"}
                   variant="outlined"
                 />
-                <Button size="small" color="error" onClick={() => cancelInvite(inv.id)}>
-                  Cancel
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={() => cancelInvite(inv.id)}
+                  disabled={cancelingId === inv.id}
+                >
+                  {cancelingId === inv.id ? "Canceling…" : "Cancel"}
                 </Button>
               </Stack>
             ))}
@@ -201,7 +220,7 @@ export default function MembersSection({
         Anyone who opens it (and logs in) joins this trip.
       </Typography>
       <Box sx={{ display: "flex", gap: 1 }}>
-        <TextField value={inviteUrl} size="small" fullWidth slotProps={{ input: { readOnly: true } }} />
+        <TextField label="Join link" value={inviteUrl} size="small" fullWidth slotProps={{ input: { readOnly: true } }} />
         <Button variant="contained" onClick={copyLink} sx={{ whiteSpace: "nowrap" }}>
           {copied ? "Copied!" : "Copy"}
         </Button>

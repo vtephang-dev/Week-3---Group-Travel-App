@@ -9,9 +9,13 @@ import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
+import Alert from "@mui/material/Alert";
+import type { Metadata } from "next";
 import LogoutButton from "./logout-button";
 import NewTripForm from "./new-trip-form";
 import HomeCurrencyForm from "./home-currency-form";
+
+export const metadata: Metadata = { title: "Your trips" };
 
 type Trip = {
   id: string;
@@ -45,7 +49,7 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const { data: trips } = await supabase
+  const { data: trips, error: tripsError } = await supabase
     .from("trips")
     .select("id, name, destination, start_date, end_date, main_currency, created_at")
     .order("created_at", { ascending: false });
@@ -83,7 +87,11 @@ export default async function DashboardPage() {
           <Typography variant="h6" sx={{ mb: 1 }}>
             Trips ({tripList.length})
           </Typography>
-          {tripList.length === 0 ? (
+          {tripsError ? (
+            <Alert severity="error">
+              We couldn&apos;t load your trips. Please refresh the page to try again.
+            </Alert>
+          ) : tripList.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
               No trips yet. Add your first one above!
             </Typography>

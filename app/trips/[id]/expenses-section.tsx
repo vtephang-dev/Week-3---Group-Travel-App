@@ -124,6 +124,9 @@ export default function ExpensesSection({
   const [payTo, setPayTo] = useState("");
   const [payAmount, setPayAmount] = useState("");
   const [openBreakdown, setOpenBreakdown] = useState<string | null>(null);
+  // Guards so a double-click can't record a payment twice or double-delete.
+  const [paying, setPaying] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
@@ -131,6 +134,7 @@ export default function ExpensesSection({
     const dollars = parseFloat(payAmount);
     if (isNaN(dollars) || dollars <= 0) return setError("Enter a valid payment amount.");
     if (!payTo) return setError("Choose who you paid.");
+    setPaying(true);
     const supabase = createClient();
     const { error } = await supabase.from("settlements").insert({
       trip_id: tripId,
@@ -139,6 +143,7 @@ export default function ExpensesSection({
       amount_cents: Math.round(dollars * 100),
       currency: tripCurrency,
     });
+    setPaying(false);
     if (error) return setError(error.message);
     setPayTo("");
     setPayAmount("");
@@ -213,9 +218,24 @@ export default function ExpensesSection({
   }
 
   async function removeExpense(id: string) {
+    if (!window.confirm("Remove this expense? It's kept in history and can be restored.")) return;
+    setError(null);
+    setRemovingId(id);
     // Soft-delete: keep the row, mark when it was removed (never silently lost).
     const supabase = createClient();
-    await supabase.from("expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    const { error } = await supabase.from("expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    setRemovingId(null);
+    if (error) return setError(error.message);
+    router.refresh();
+  }
+
+  async function restoreExpense(id: string) {
+    setError(null);
+    setRemovingId(id);
+    const supabase = createClient();
+    const { error } = await supabase.from("expenses").update({ deleted_at: null }).eq("id", id);
+    setRemovingId(null);
+    if (error) return setError(error.message);
     router.refresh();
   }
 
@@ -436,7 +456,8 @@ export default function ExpensesSection({
                         <Button
                           size="small"
                           onClick={() => setOpenBreakdown(open ? null : e.id)}
-                          sx={{ textTransform: "none", color: "text.secondary", minWidth: 0, px: 0.5 }}
+                          aria-expanded={open}
+                          sx={{ textTransform: "none", color: "text.secondary", px: 1 }}
                         >
                           How this was split {open ? "▲" : "▼"}
                         </Button>
@@ -463,8 +484,13 @@ export default function ExpensesSection({
                         </Box>
                       )}
                     </Box>
-                    <Button size="small" color="error" onClick={() => removeExpense(e.id)}>
-                      Delete
+                    <Button
+                      size="small"
+                      color="error"
+                      onClick={() => removeExpense(e.id)}
+                      disabled={removingId === e.id}
+                    >
+                      {removingId === e.id ? "Removing…" : "Delete"}
                     </Button>
                   </Stack>
                   <Divider sx={{ mt: 1 }} />
@@ -549,8 +575,8 @@ export default function ExpensesSection({
                 placeholder="25.00"
                 inputMode="decimal"
               />
-              <Button type="submit" variant="outlined">
-                Record
+              <Button type="submit" variant="outlined" disabled={paying}>
+                {paying ? "Recording…" : "Record"}
               </Button>
             </Stack>
           </Box>
@@ -581,10 +607,17 @@ export default function ExpensesSection({
             {removedExpenses.map((e) => (
               <Stack key={e.id} direction="row" sx={{ alignItems: "center", gap: 1 }}>
                 <Chip label="Removed" size="small" variant="outlined" />
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
                   {e.description} — {expenseAmount(e)} · paid by{" "}
                   {e.payer_name} · removed {addedOn(e.removed_at)}
                 </Typography>
+                <Button
+                  size="small"
+                  onClick={() => restoreExpense(e.id)}
+                  disabled={removingId === e.id}
+                >
+                  {removingId === e.id ? "Restoring…" : "Restore"}
+                </Button>
               </Stack>
             ))}
           </Stack>
@@ -752,10 +785,10 @@ export default function ExpensesSection({
                         <Button
                           size="small"
                           color="error"
+                          aria-label={`Remove item ${i + 1}`}
                           onClick={() =>
                             setItemLines((prev) => prev.filter((_, idx) => idx !== i))
                           }
-                          sx={{ minWidth: 0 }}
                         >
                           ✕
                         </Button>
