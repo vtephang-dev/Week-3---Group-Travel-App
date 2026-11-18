@@ -14,6 +14,7 @@ import ArrivalsSection from "./arrivals-section";
 import ExpensesSection from "./expenses-section";
 import MembersSection from "./members-section";
 import HomeCurrencyStrip from "./home-currency-strip";
+import TripTabs from "./trip-tabs";
 import { getRate, type FxRate } from "@/utils/fx";
 
 function formatDateRange(start: string | null, end: string | null) {
@@ -334,41 +335,70 @@ export default async function TripPage({
           />
         )}
 
-        <MembersSection
-          tripId={id}
-          members={members}
-          inviteUrl={inviteUrl}
-          currentUserId={user.id}
-          pendingInvites={pendingInvites}
-          isOwner={trip.owner_id === user.id}
+        <TripTabs
+          tabs={[
+            {
+              label: "Members",
+              content: (
+                <MembersSection
+                  tripId={id}
+                  members={members}
+                  inviteUrl={inviteUrl}
+                  currentUserId={user.id}
+                  pendingInvites={pendingInvites}
+                  isOwner={trip.owner_id === user.id}
+                />
+              ),
+            },
+            {
+              label: "Itinerary",
+              content: (
+                <ItinerarySection
+                  tripId={id}
+                  items={itineraryRows}
+                  currentUserId={user.id}
+                  isOwner={trip.owner_id === user.id}
+                  tripCurrency={trip.main_currency ?? "USD"}
+                />
+              ),
+            },
+            {
+              label: "Ideas",
+              content: (
+                <IdeasSection
+                  tripId={id}
+                  ideas={ideasWithComments}
+                  currentUserId={user.id}
+                  isOwner={trip.owner_id === user.id}
+                  tripCurrency={trip.main_currency ?? "USD"}
+                />
+              ),
+            },
+            {
+              label: "Expenses",
+              content: (
+                <ExpensesSection
+                  tripId={id}
+                  expenses={expenseRows}
+                  members={members}
+                  currentUserId={user.id}
+                  balances={balances}
+                  settlements={settlements}
+                  recordedPayments={recordedPayments}
+                  allSettled={allSettled}
+                  tripCurrency={trip.main_currency ?? "USD"}
+                  removedExpenses={removedExpenses}
+                />
+              ),
+            },
+            {
+              label: "Arrivals",
+              content: (
+                <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} members={members} />
+              ),
+            },
+          ]}
         />
-        <ItinerarySection
-          tripId={id}
-          items={itineraryRows}
-          currentUserId={user.id}
-          isOwner={trip.owner_id === user.id}
-          tripCurrency={trip.main_currency ?? "USD"}
-        />
-        <IdeasSection
-          tripId={id}
-          ideas={ideasWithComments}
-          currentUserId={user.id}
-          isOwner={trip.owner_id === user.id}
-          tripCurrency={trip.main_currency ?? "USD"}
-        />
-        <ExpensesSection
-          tripId={id}
-          expenses={expenseRows}
-          members={members}
-          currentUserId={user.id}
-          balances={balances}
-          settlements={settlements}
-          recordedPayments={recordedPayments}
-          allSettled={allSettled}
-          tripCurrency={trip.main_currency ?? "USD"}
-          removedExpenses={removedExpenses}
-        />
-        <ArrivalsSection tripId={id} arrivals={arrivalRows} currentUserId={user.id} members={members} />
       </Box>
     </Container>
   );
