@@ -18,10 +18,16 @@ erDiagram
     ideas ||--o{ idea_comments : "has"
     expenses ||--o{ expense_splits : "split into"
     profiles ||--o{ expense_splits : "owes"
+    itinerary_items ||--o{ item_optins : "opted into by"
+    profiles ||--o{ item_optins : "opts into"
+    expenses ||--o{ expense_lines : "itemized into"
+    expense_lines ||--o{ line_shares : "shared via"
+    profiles ||--o{ line_shares : "had"
 
     profiles {
         uuid id PK
         text display_name
+        text home_currency
     }
     trips {
         uuid id PK
@@ -81,6 +87,12 @@ erDiagram
         text location
         text flight_number
     }
+    item_optins {
+        uuid item_id PK_FK
+        uuid user_id PK_FK
+        uuid trip_id FK
+        timestamptz created_at
+    }
     expenses {
         uuid id PK
         uuid trip_id FK
@@ -89,6 +101,14 @@ erDiagram
         text currency
         uuid paid_by FK
         text split_mode
+        int subtotal_cents
+        int tax_cents
+        int service_cents
+        int tip_cents
+        int entered_amount_cents
+        text entered_currency
+        numeric fx_rate_to_trip
+        date fx_rate_date
         timestamptz deleted_at
     }
     expense_splits {
@@ -97,6 +117,19 @@ erDiagram
         uuid trip_id FK
         int share_cents
     }
+    expense_lines {
+        uuid id PK
+        uuid expense_id FK
+        uuid trip_id FK
+        text label
+        int amount_cents
+    }
+    line_shares {
+        uuid line_id PK_FK
+        uuid user_id PK_FK
+        uuid trip_id FK
+        int weight
+    }
     settlements {
         uuid id PK
         uuid trip_id FK
@@ -104,6 +137,13 @@ erDiagram
         uuid to_user FK
         int amount_cents
         timestamptz paid_at
+    }
+    fx_rates {
+        text base PK
+        text quote PK
+        date as_of PK
+        numeric rate
+        date rate_date
     }
 ```
 
