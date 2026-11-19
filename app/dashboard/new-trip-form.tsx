@@ -44,7 +44,12 @@ export default function NewTripForm() {
 
     setLoading(true);
     const supabase = createClient();
+    // Generate the id on the client so we can navigate straight to the new trip
+    // without reading it back (which RLS blocks on the just-inserted row).
+    const newId =
+      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
     const { error } = await supabase.from("trips").insert({
+      ...(newId ? { id: newId } : {}),
       name,
       destination: destination || null,
       start_date: startDate || null,
@@ -52,17 +57,17 @@ export default function NewTripForm() {
       main_currency: currency,
     });
 
-    setLoading(false);
     if (error) {
+      setLoading(false);
       setError(error.message);
       return;
     }
-    setName("");
-    setDestination("");
-    setStartDate("");
-    setEndDate("");
-    setCurrency("USD");
-    router.refresh();
+    // Go straight into the new trip instead of leaving the user on the dashboard.
+    if (newId) {
+      router.push(`/trips/${newId}`);
+    } else {
+      router.refresh();
+    }
   }
 
   return (
