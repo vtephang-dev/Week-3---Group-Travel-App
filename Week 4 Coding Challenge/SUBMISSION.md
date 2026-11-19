@@ -38,5 +38,5 @@ DO NOT use AI for this — your teacher checks.
 - [x] The database saves information and reads it back (trips persist across login)
 - [x] Row-Level Security is on (each person sees only data for trips they belong to)
 - [x] No secret keys are in the GitHub repository
-- [x] At least three ADRs in docs/adr (there are 7)
+- [x] At least three ADRs in docs/adr (there are 11)
 - [x] A database diagram in the docs folder
