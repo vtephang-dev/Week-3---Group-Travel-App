@@ -365,14 +365,19 @@ export default async function TripPage({
             {
               label: "Members",
               content: (
-                <MembersSection
-                  tripId={id}
-                  members={members}
-                  inviteUrl={inviteUrl}
-                  currentUserId={user.id}
-                  pendingInvites={pendingInvites}
-                  isOwner={trip.owner_id === user.id}
-                />
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <MembersSection
+                    tripId={id}
+                    members={members}
+                    inviteUrl={inviteUrl}
+                    currentUserId={user.id}
+                    pendingInvites={pendingInvites}
+                    isOwner={trip.owner_id === user.id}
+                  />
+                  {trip.owner_id === user.id && (
+                    <DeleteTripButton tripId={id} tripName={trip.name} />
+                  )}
+                </Box>
               ),
             },
             {
@@ -424,10 +429,6 @@ export default async function TripPage({
             },
           ]}
         />
-
-        {trip.owner_id === user.id && (
-          <DeleteTripButton tripId={id} tripName={trip.name} />
-        )}
       </Box>
     </Container>
   );
